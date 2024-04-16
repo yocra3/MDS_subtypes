@@ -1,0 +1,922 @@
+---
+title: "Clinical Data Exploration"
+author: "Carlos Ruiz"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Introduction
+
+In this document, I will explore the clinical variables present in the IPPSmol dataset.
+
+# Data loading
+
+```{r}
+library(tidyverse)
+library(GGally)
+library(survival)
+library(survminer)
+library(cowplot)
+```
+
+```{r}
+load("../results/preprocess/clinical_preproc.Rdata")
+```
+
+```{r}
+colnames(clinical_all)
+```
+
+The dataset contains `r nrow(clinical_all)` individuals and `r ncol(clinical_all)` variables.
+
+# Data exploration
+
+Define functions
+
+```{r}
+plot_continuous <- function(var, binwidth){
+  ggplot(clinical_all, aes(x = .data[[var]])) +
+    geom_histogram(binwidth = binwidth) +
+    theme_bw()
+}
+
+descrip_continuous <- function(var, thres){
+  clinical_all %>%
+    mutate(intervals = cut_interval(.data[[var]], thres)) %>%
+    count(intervals) %>%
+    mutate(perc = round(n/sum(n)*100, 1))
+}
+
+
+plot_categorical <- function(var){
+  ggplot(clinical_all, aes(x = .data[[var]])) +
+    geom_bar() +
+    theme_bw()
+}
+
+descrip_categorical <- function(var){
+  clinical_all %>%
+    count(.data[[var]]) %>%
+    mutate(perc = round(n/sum(n)*100, 1))
+}
+```
+
+
+## Demographic variables
+
+The cohort contains two demographic variables: age and sex.
+
+```{r}
+demo_vars <- c("AGE", "SEX")
+```
+
+
+```{r}
+plot_continuous("AGE", 1)
+descrip_continuous("AGE", 10)
+```
+
+Most individuals are between 56 and 90 years old. Nonetheless, `r round(mean(clinical_all$AGE < 56, na.rm = TRUE)*100, 2)`% of the individuals are younger than 56, being `r round(mean(clinical_all$AGE < 30, na.rm = TRUE)*100, 2)`% younger than 30. In addition, `r round(mean(is.na(clinical_all$AGE))*100, 2)`% have missing age.
+
+```{r}
+plot_categorical("SEX")
+descrip_categorical("SEX")
+```
+
+There are more men than woman. 
+
+```{r}
+ggplot(clinical_all, aes(x = SEX, y = AGE)) +
+  geom_boxplot() +
+  theme_bw()
+
+ggplot(clinical_all, aes(x = AGE, color = SEX)) +
+ geom_freqpoly( binwidth = 1) + theme_bw()
+```
+
+The age distribution seems very similar in men than women
+
+## Clinical variables
+
+```{r}
+clin_vars <- c("BM_BLAST", "PB_BLAST", "WBC", "ANC", "MONOCYTES", "HB", "PLT")
+```
+
+### Bone marrow blasts (%)
+
+```{r}
+plot_continuous("BM_BLAST", 0.1)
+plot_continuous("BM_BLAST", 1)
+
+descrip_continuous("BM_BLAST", 10)
+```
+
+Bone marrow blasts show a tail distribution, with most individuals between 0 and 5% but a tail up to 20%.
+
+### Peripheral blood blasts (%)
+
+```{r}
+plot_continuous("PB_BLAST", 1)
+plot_continuous("PB_BLAST", 0.1)
+
+descrip_continuous("PB_BLAST", 10)
+```
+
+Most individuals did not have blasts in peripheral blood. A high proportion of samples (`r round(mean(is.na(clinical_all$PB_BLAST))*100, 2)`%) had missing values.
+
+
+### Whole blood cell counts (Giga/L)
+
+```{r}
+plot_continuous("WBC", 1)
+plot_continuous("WBC", 0.1)
+
+descrip_continuous("WBC", 10)
+```
+
+Most samples had white blood cell counts between 1.6 and 6.6 Giga/L. A relevant proportion of samples (`r round(mean(is.na(clinical_all$WBC))*100, 2)`%) had missing values for white blood cell counts.
+
+### Absolute Neutrophil Count (Giga/L)
+
+```{r}
+plot_continuous("ANC", 1)
+plot_continuous("ANC", 0.1)
+
+descrip_continuous("ANC", 10)
+```
+
+Most samples had neutrophil counts between 0 and 3 (Giga/L). Some samples (`r round(mean(is.na(clinical_all$WBC))*100, 2)`%) had missing values for neutrophil counts.
+
+### Monocyte Count (Giga/L)
+
+```{r}
+plot_continuous("MONOCYTES", 0.1)
+
+descrip_continuous("MONOCYTES", 10)
+```
+
+Most samples had monocyte counts below 1 Giga/L. A high proportion of sample (`r round(mean(is.na(clinical_all$WBC))*100, 2)`%) had missing values for monocyte counts.
+
+
+### Hemoglobin (g/dL)
+
+```{r}
+plot_continuous("HB", 1)
+plot_continuous("HB", 0.1)
+
+descrip_continuous("HB", 10)
+```
+
+Most samples had hemoglobin proportions between 8 and 12 g/dL. 
+
+### Platelets (Giga/L)
+
+```{r}
+plot_continuous("PLT", 10)
+plot_continuous("PLT", 1) +
+  xlim(c(0, 250))
+
+descrip_continuous("PLT", 10)
+```
+
+Most samples had platelet count values below 200 Giga/L. Original studied capped the platelet values to 250. 
+
+### Ringed Sideroblasts (Giga/L)
+
+```{r}
+plot_continuous("RINGED_SIDEROBLASTS", 1)
+
+descrip_continuous("RINGED_SIDEROBLASTS", 10)
+```
+
+Only a small subset of the samples had information about ring sideroblasts. Therefore, we will not include them in the analysis.
+
+
+## Cytogenetics
+
+```{r}
+cyto <- c("CYTO_IPSSR", "complex", "chr17", 
+          colnames(clinical_all)[starts_with(c("kar", "mono", "triso", "del"), 
+  ignore.case = FALSE,
+  vars = colnames(clinical_all))], 
+  "dic", "inv", "mar", "trans")
+```
+
+### Cytogenetics IPSSR
+
+```{r}
+plot_categorical("CYTO_IPSSR")
+descrip_categorical("CYTO_IPSSR") 
+```
+
+Most of the individuals presented good or very good cytogenetic results.
+
+
+### Complex
+
+```{r}
+plot_categorical("complex")
+descrip_categorical("complex") 
+```
+
+Some individuals present complex karyotypes.
+
+
+### Chromosome 17
+
+```{r}
+plot_categorical("chr17")
+descrip_categorical("chr17") 
+```
+
+Some individuals present aberrations in chromosome 17.
+
+### Karyotype events
+
+```{r}
+kar <- c(colnames(clinical_all)[starts_with(c("kar", "mono", "triso", "del", "der"),
+  ignore.case = FALSE,
+  vars = colnames(clinical_all))], 
+  "dic", "inv", "mar", "trans", "any_aberration", "dup_rare", "add_rare")
+```
+
+```{r}
+clin_cyto <- clinical_all %>%
+  select(kar) %>%
+  gather(Event, Value) %>%
+  filter(Value != 0) %>%
+  mutate(
+    Group = case_when(
+      str_detect(Event, "mono*") ~ "Monosomies",  
+      str_detect(Event, "tri.*") ~ "Trisomies", 
+      str_detect(Event, "kar.*") ~ "Karyotype Number", 
+      str_detect(Event, "del.*") ~ "Deletions", 
+      str_detect(Event, "der.*") ~ "Derivative",
+      TRUE ~ "Other" 
+    )
+  ) 
+
+clin_cyto %>%
+  filter(!Group %in% c("Monosomies")) %>%
+  ggplot(aes(x = Event)) +
+    geom_bar() +
+  theme_bw() +
+  facet_wrap(~ Group, scales = "free_x")
+
+clin_cyto %>%
+  filter(Group %in% c("Monosomies")) %>%
+  ggplot(aes(x = Event)) +
+    geom_bar() +
+  theme_bw()
+
+clin_cyto %>%
+  count(Event) %>%
+    mutate(perc = round(n/nrow(clinical_all)*100, 1)) %>%
+  arrange(desc(n))
+```
+
+Almost half of the patients had at least a karyotipic aberration. The most common aberrations are deletions, monosomies and trisomies. The most common single event is del5q. 
+
+```{r}
+top_kar <- clin_cyto %>%
+  count(Event) %>%
+    mutate(perc = round(n/nrow(clinical_all)*100, 1)) %>%
+  arrange(desc(n)) %>%
+  filter(n > 100) %>%
+  pull(Event)
+```
+
+
+
+### Copy number events
+
+```{r}
+cnv <- c(colnames(clinical_all)[starts_with(c("loss", "gain", "upd"),
+  ignore.case = FALSE,
+  vars = colnames(clinical_all))])
+```
+
+```{r}
+clin_cnv <- clinical_all %>%
+  select(cnv) %>%
+  gather(Event, Value) %>%
+  filter(Value != 0) %>%
+  mutate(
+    Group = case_when(
+      str_detect(Event, "loss*") ~ "Loss",  
+      str_detect(Event, "gain.*") ~ "Gain", 
+      str_detect(Event, "upd.*") ~ "UPDs"
+    )
+  ) 
+
+clin_cnv %>%
+ filter(!Group %in% "Loss") %>%
+  ggplot(aes(x = Event)) +
+    geom_bar() +
+  theme_bw() +
+  facet_wrap(~ Group, scales = "free_x")
+
+clin_cnv %>%
+  filter(Group %in% "Loss") %>%
+  ggplot(aes(x = Event)) +
+    geom_bar() +
+  theme_bw()
+
+clin_cnv %>%
+  count(Event) %>%
+    mutate(perc = round(n/nrow(clinical_all)*100, 1)) %>%
+  arrange(desc(n))
+```
+
+Deletions are also the most common cnvs, highlight del5q. Next, UPD events are more frequent than gains. Nonetheless, any other individual event is much infrequent than del5q.
+
+```{r}
+top_cnv <- clin_cnv %>%
+  count(Event) %>%
+    mutate(perc = round(n/nrow(clinical_all)*100, 1)) %>%
+  arrange(desc(n)) %>%
+  filter(n > 100) %>%
+  pull(Event)
+```
+
+
+## MDS subtypes
+
+```{r}
+mds_types <- c("MDS_TYPE", "WHO_2016")
+```
+
+
+### MDS type
+
+```{r}
+plot_categorical("MDS_TYPE")
+descrip_categorical("MDS_TYPE") 
+```
+
+Most patients are primary MDS. However, a subset where secondary or therapy related MDS.
+
+
+### WHO subtypes
+
+```{r}
+plot_categorical("WHO_2016") 
+descrip_categorical("WHO_2016")  %>%
+  arrange(desc(n))
+```
+
+Most frequent categories are MDS-MLD or MDS with excess of blasts (EB1 and/or EB2)
+
+## IPSS scores
+
+```{r}
+scores <- c("IPSSR", "IPSSR_SCORE", "IPSSRA", "IPSSRA_SCORE", "IPSSM", "IPSSM_SCORE")
+```
+
+
+### IPSSR
+
+```{r}
+plot_continuous("IPSSR_SCORE", 0.5)
+plot_categorical("IPSSR") 
+descrip_categorical("IPSSR") 
+```
+
+Individuals are more likely to have low IPSSR scores. For low scores, there is a tendency to overestimate entire scores (i.e. 1, 2,...)
+
+
+### IPSSRA
+
+```{r}
+plot_continuous("IPSSRA_SCORE", 0.5)
+plot_categorical("IPSSRA") 
+descrip_categorical("IPSSRA") 
+```
+
+The IPSSRA scores show a more normal distribution. Nonetheless, it still predominates the individuals with low scores.
+
+
+### IPSSM
+
+```{r}
+plot_continuous("IPSSM_SCORE", 0.5)
+plot_categorical("IPSSM") 
+descrip_categorical("IPSSM") 
+```
+
+The IPSSM scores show also negative values, reflecting individuals with lower risk than expected. Nonetheless, it still biased to low risk individuals.
+
+## Outcomes
+
+```{r}
+outcomes <- c("OS_YEARS", "OS_STATUS", "AMLt_YEARS", "AMLt_STATUS", "LFS_YEARS", "LFS_STATUS" )
+```
+
+### Overall Survival
+
+```{r}
+os_surv <- survfit(Surv(OS_YEARS,OS_STATUS) ~ 1, clinical_all)
+print(os_surv)
+ggsurvplot(os_surv, data = clinical_all) 
+```
+
+Almost half of the individuals died during the follow-up. Survival probability decreased sharply and stabilizes around 5 years.
+
+### Acute Myeloid Leukemia transformation; 
+
+```{r}
+aml_surv <- survfit(Surv(AMLt_YEARS,AMLt_STATUS) ~ 1, clinical_all)
+print(aml_surv)
+ggsurvplot(aml_surv, data = clinical_all) 
+```
+
+A small proportion of patients developed Acute Myeloid Leukemia transformation. Transformation happened relative early. 
+
+
+### Leukemia-Free Survival
+
+```{r}
+lfs_surv <- survfit(Surv(LFS_YEARS,LFS_STATUS) ~ 1, clinical_all)
+print(lfs_surv)
+ggsurvplot(lfs_surv, data = clinical_all) 
+```
+
+A similar proportion of patients that died developed leukemia. The decrease is sharper and peaks around 3 years after starting the follow-up.
+
+## Treatments
+
+```{r}
+treatments <- c("hma", "lenalidomid", "chemotherapy", "transplant")
+```
+
+
+```{r}
+clinical_all <- clinical_all %>%
+  mutate(N_treatments = hma + lenalidomid + chemotherapy + transplant) 
+
+
+plot_categorical("N_treatments") 
+descrip_categorical("N_treatments") 
+```
+
+Most patients did not have any treatment. Of the patients treated, most have just one treatment.
+
+```{r}
+clin_sum <- clinical_all %>%
+  select(hma, lenalidomid, chemotherapy, transplant) %>%
+  gather(Treatment, Value) %>%
+  filter(Value != 0)
+
+ggplot(clin_sum, aes(x = Treatment)) +
+    geom_bar() +
+  theme_bw()
+clin_sum %>%
+  count(Treatment)
+```
+
+The most frequent treatment was hypomethylation agents (hma).
+
+# Variables covariation
+
+## Demographic vs clinical
+
+```{r}
+ggpairs(clinical_all[, c("AGE", clin_vars)])
+plot_grid(plotlist = 
+            lapply(clin_vars, function(var){
+   ggplot(clinical_all, aes(x = SEX, y = .data[[var]])) +
+    geom_boxplot() +
+    theme_bw()
+}), nrow = 2)
+
+summary(lm(PLT ~ SEX, clinical_all))
+```
+
+Among the clinical variables, we observed correlation between the blood cell counts (WBC, ANC and MONOCYTES). Age is not correlated with any clinical variable. Female had slightly higher platelet levels.
+
+## Demographic vs cytogenetics
+
+```{r}
+ggpairs(clinical_all[, c(demo_vars, "CYTO_IPSSR", "complex")])
+```
+
+There is no correlation between age and sex and cytogenetics. 
+
+
+```{r}
+plot_grid(plotlist = 
+            lapply(top_kar[1:6], function(var){
+   ggplot(clinical_all, aes(color = factor(.data[[var]]), x = AGE)) +
+    geom_density() +
+    theme_bw()
+}), nrow = 3)
+
+plot_grid(plotlist = 
+            lapply(top_kar[7:13], function(var){
+   ggplot(clinical_all, aes(color = factor(.data[[var]]), x = AGE)) +
+    geom_density() +
+    theme_bw()
+}), nrow = 3)
+
+summary(glm(mono7 ~ AGE, clinical_all, family = "binomial" ))
+summary(glm(monoy ~ AGE, clinical_all, family = "binomial" ))
+summary(glm(del_rare ~ AGE, clinical_all, family = "binomial" ))
+summary(glm(any_aberration ~ AGE, clinical_all, family = "binomial" ))
+
+```
+
+Karyotipic aberrations are not related with age. LOY and rare deletions are increased with older patients while monosomies 7 is associated with younger patients.
+
+```{r}
+plot_grid(plotlist = 
+            lapply(top_kar[1:6], function(var){
+   ggplot(clinical_all, aes(color = factor(.data[[var]]), x = AGE)) +
+    geom_density() +
+    theme_bw()
+}), nrow = 3)
+
+plot_grid(plotlist = 
+            lapply(top_kar[7:13], function(var){
+   ggplot(clinical_all, aes(color = factor(.data[[var]]), x = AGE)) +
+    geom_density() +
+    theme_bw()
+}), nrow = 3)
+
+summary(glm(mono7 ~ AGE, clinical_all, family = "binomial" ))
+summary(glm(monoy ~ AGE, clinical_all, family = "binomial" ))
+summary(glm(del_rare ~ AGE, clinical_all, family = "binomial" ))
+```
+
+
+```{r}
+plot_grid(plotlist = 
+            lapply(top_kar[1:6], function(var){
+   ggplot(clinical_all, aes(x = factor(.data[[var]]), fill = SEX)) +
+    geom_bar(position = "dodge") +
+    theme_bw()
+}), nrow = 3)
+
+plot_grid(plotlist = 
+            lapply(top_kar[7:13], function(var){
+   ggplot(clinical_all, aes(x = factor(.data[[var]]), fill = SEX)) +
+    geom_bar(position = "dodge") +
+    theme_bw()
+}), nrow = 3)
+
+
+fisher.test(table(clinical_all$del_any, clinical_all$SEX))
+fisher.test(table(clinical_all$monosomies, clinical_all$SEX))
+fisher.test(table(clinical_all$del5q, clinical_all$SEX))
+fisher.test(table(clinical_all$kar45, clinical_all$SEX))
+```
+
+Having any type of deletion, specifically del5q is more frequent in women than in men. In contrast, monosomies, specially having 45 chromosomes is more frequent in men, possibly due to LOY. 
+
+
+
+## Demographic vs CNVs
+
+```{r}
+plot_grid(plotlist = 
+            lapply(top_cnv, function(var){
+   ggplot(clinical_all, aes(color = factor(.data[[var]]), x = AGE)) +
+    geom_density() +
+    theme_bw()
+}), nrow = 2)
+
+
+summary(glm(gain_any ~ AGE, clinical_all, family = "binomial" ))
+```
+
+There is no association between any CNV event and age.
+
+```{r}
+plot_grid(plotlist = 
+            lapply(top_cnv, function(var){
+   ggplot(clinical_all, aes(x = factor(.data[[var]]), fill = SEX)) +
+    geom_bar(position = "dodge") +
+    theme_bw()
+}), nrow = 2)
+
+fisher.test(table(clinical_all$loss_any, clinical_all$SEX))
+fisher.test(table(clinical_all$loss_5q, clinical_all$SEX))
+```
+
+Losses are more frequent in women, specially del5q.
+
+
+## Demographic vs subtypes
+
+```{r}
+ggpairs(clinical_all[, c(demo_vars, mds_types)])
+```
+
+There might be an association between age and WHO subtypes. 
+
+## Demographic vs risks
+
+```{r}
+ggpairs(clinical_all[, c(demo_vars, "IPSSR", "IPSSRA", "IPSSM")])
+```
+
+There is no association between IPSS categories and sex or age. 
+
+## Demographic vs survival
+
+### Overall Survival
+
+```{r}
+clin_age <- mutate(clinical_all, age_int = cut_interval(AGE, 5))
+os_age <- survfit(Surv(OS_YEARS,OS_STATUS) ~ age_int, clin_age)
+ggsurvplot(os_age, data = clin_age) 
+coxph(Surv(OS_YEARS,OS_STATUS) ~ AGE, clinical_all)
+
+```
+Older patients had worse survival.
+
+```{r}
+os_sex <- survfit(Surv(OS_YEARS,OS_STATUS) ~ SEX, clinical_all)
+ggsurvplot(os_sex, data = clinical_all) 
+coxph(Surv(OS_YEARS,OS_STATUS) ~ SEX, clinical_all)
+```
+
+Men had worse survival than women.
+
+```{r}
+os_demo <- survfit(Surv(OS_YEARS,OS_STATUS) ~ SEX + age_int, clin_age)
+ggsurvplot(os_demo, data = clin_age) 
+coxph(Surv(OS_YEARS,OS_STATUS) ~ SEX + AGE, clinical_all)
+
+```
+
+Women had higher survival at all ages.
+
+### Acute Myeloid Leukemia transformation
+
+```{r}
+aml_age <- survfit(Surv(AMLt_YEARS,AMLt_STATUS) ~ age_int, clin_age)
+ggsurvplot(aml_age, data = clin_age) 
+coxph(Surv(AMLt_YEARS,AMLt_STATUS) ~ AGE, clinical_all)
+```
+
+Middle-age patients (47-80 yo) have the highest risk for Acute Myeloid Leukemia transformation.
+
+```{r}
+aml_sex <- survfit(Surv(AMLt_YEARS,AMLt_STATUS) ~ SEX, clinical_all)
+ggsurvplot(aml_sex, data = clinical_all) 
+coxph(Surv(AMLt_YEARS,AMLt_STATUS) ~ SEX, clinical_all)
+
+```
+
+There were no differences between men and women for AML transformation.
+
+### Leukemia-Free Survival
+
+```{r}
+lfs_age <- survfit(Surv(LFS_YEARS,LFS_STATUS) ~ age_int, clin_age)
+ggsurvplot(lfs_age, data = clin_age) 
+coxph(Surv(LFS_YEARS,LFS_STATUS) ~ AGE, clinical_all)
+```
+
+Older patients have higher risk for developing leukemia.
+
+```{r}
+lfs_sex <- survfit(Surv(LFS_YEARS,LFS_STATUS) ~ SEX, clinical_all)
+ggsurvplot(lfs_sex, data = clinical_all) 
+coxph(Surv(LFS_YEARS,LFS_STATUS) ~ SEX, clinical_all)
+
+```
+
+Men also had higher risk for suffering leukemia.
+
+
+```{r}
+lfs_demo <- survfit(Surv(LFS_YEARS,LFS_STATUS) ~ SEX + age_int, clin_age)
+ggsurvplot(lfs_demo, data = clin_age) 
+coxph(Surv(LFS_YEARS,LFS_STATUS) ~ SEX + AGE, clinical_all)
+
+```
+
+The differences between men and women are consistent for all the ages.
+
+
+## Clinical vs cytogenetics
+
+```{r}
+plot_grid(plotlist = 
+            lapply(clin_vars, function(var){
+   ggplot(clinical_all, aes(x = CYTO_IPSSR, y = .data[[var]])) +
+    geom_boxplot() +
+    theme_bw()
+}), nrow = 2)
+
+plot_grid(plotlist = 
+            lapply(clin_vars, function(var){
+   ggplot(clinical_all, aes(x = complex, y = .data[[var]])) +
+    geom_boxplot() +
+    theme_bw()
+}), nrow = 2)
+```
+
+Cytogenetic measurements were reflected in cell types proportions.
+
+
+```{r}
+lapply(top_kar, function(kar_var){
+  plot_grid(plotlist = 
+            lapply(clin_vars, function(var){
+   ggplot(clinical_all, aes(x = factor(.data[[kar_var]]), y = .data[[var]])) +
+    geom_boxplot() +
+    theme_bw()
+  }), nrow = 2)
+})
+```
+Cytogenetic events were reflected in cell types proportions.
+
+## Clinical vs CNVs
+
+```{r}
+lapply(top_cnv, function(cnv_var){
+  plot_grid(plotlist = 
+            lapply(clin_vars, function(var){
+   ggplot(clinical_all, aes(x = factor(.data[[cnv_var]]), y = .data[[var]])) +
+    geom_boxplot() +
+    theme_bw()
+  }), nrow = 2)
+})
+```
+
+There is an association between top CNV events and clinical variables.
+
+## Clinical vs subtypes
+
+```{r}
+plot_grid(plotlist = 
+            lapply(clin_vars, function(var){
+   ggplot(clinical_all, aes(x = MDS_TYPE, y = .data[[var]])) +
+    geom_boxplot() +
+    theme_bw()
+}), nrow = 2)
+
+plot_grid(plotlist = 
+            lapply(clin_vars, function(var){
+   ggplot(clinical_all, aes(x = WHO_2016, y = .data[[var]])) +
+    geom_boxplot() +
+    theme_bw()
+}), nrow = 2)
+
+```
+
+There is high correlation between WHO subtypes and clinical variables. Nonetheless, WHO subtypes are defined based on clinical variables.
+
+
+## Clinical vs risks
+
+```{r}
+ggpairs(clinical_all[, c(clin_vars, "IPSSR_SCORE", "IPSSRA_SCORE", "IPSSM_SCORE")])
+```
+
+Clinical variables are highly correlated with scores.
+
+## Clinical vs Survival
+
+```{r}
+coxph(formula(paste("Surv(OS_YEARS,OS_STATUS) ~",  paste(clin_vars, collapse = "+"))),
+              clinical_all)
+```
+
+Blast proportions, hemoglobin and platelets are associated with overall survival.
+
+
+```{r}
+coxph(formula(paste("Surv(AMLt_YEARS,AMLt_STATUS) ~",  paste(clin_vars, collapse = "+"))),
+              clinical_all)
+```
+
+Bone marrow blasts, whole blood counts and neutrophil counts are associated with AML transformation.
+
+```{r}
+coxph(formula(paste("Surv(LFS_YEARS,LFS_STATUS) ~",  paste(clin_vars, collapse = "+"))),
+              clinical_all)
+```
+
+Bone marrow proportions, hemoglobin and platelets are associated with leukemia free survival.
+
+
+## Karyotype vs Survival
+
+### Overall survival
+
+```{r}
+coxph(Surv(OS_YEARS,OS_STATUS) ~ any_aberration, clinical_all)
+```
+
+Having any karyotype aberration is associated with survival.
+
+
+```{r}
+any <- c("del_any", "mar", "monosomies", "trisomies")
+coxph(formula(paste("Surv(OS_YEARS,OS_STATUS) ~",  paste(any, collapse = "+"))),
+              clinical_all)
+```
+
+```{r}
+any2 <- c("kar45", "kar47")
+coxph(formula(paste("Surv(OS_YEARS,OS_STATUS) ~",  paste(any2, collapse = "+"))),
+              clinical_all)
+```
+
+Having 45 or 47 chromosomes is also associated with survival. 
+
+```{r}
+kar2 <- top_kar[!top_kar %in% c(any, any2, "any_aberration")]
+coxph(formula(paste("Surv(OS_YEARS,OS_STATUS) ~",  paste(kar2, collapse = "+"))),
+              clinical_all)
+```
+
+Trisomy8, monosomy7 and rare additions are associated with overall survival.
+
+
+```{r}
+coxph(Surv(OS_YEARS,OS_STATUS) ~ monoy, clinical_all, subset = SEX == "M")
+```
+
+### Acute Myeloid Leukemia transformation
+
+
+```{r}
+coxph(Surv(AMLt_YEARS,AMLt_STATUS) ~ any_aberration, clinical_all)
+```
+
+Having any karyotype aberration is associated with AML transformation.
+
+
+```{r}
+coxph(formula(paste("Surv(AMLt_YEARS,AMLt_STATUS) ~",  paste(any, collapse = "+"))),
+              clinical_all)
+```
+
+Having any type of deletion, monosomies or trisomies is associated with AML transformation.
+
+```{r}
+coxph(formula(paste("Surv(AMLt_YEARS,AMLt_STATUS) ~",  paste(any2, collapse = "+"))),
+              clinical_all)
+```
+
+Having 47 chromosomes is also associated with AML transformation, but not having 45. 
+
+```{r}
+coxph(formula(paste("Surv(AMLt_YEARS,AMLt_STATUS) ~",  paste(kar2, collapse = "+"))),
+              clinical_all)
+```
+
+Trisomy8, monosomy7 and rare additions are associated with AML transformation.
+
+
+```{r}
+coxph(Surv(AMLt_YEARS,AMLt_STATUS) ~ monoy, clinical_all, subset = SEX == "M")
+```
+
+### Leukemia-Free Survival
+
+```{r}
+coxph(Surv(LFS_YEARS,LFS_STATUS) ~ any_aberration, clinical_all)
+```
+
+Having any karyotype aberration is associated with Leukemia Free Survival (LFS).
+
+
+```{r}
+coxph(formula(paste("Surv(LFS_YEARS,LFS_STATUS) ~",  paste(any, collapse = "+"))),
+              clinical_all)
+```
+
+Having any type of deletion, monosomies or trisomies is associated with LFS.
+
+```{r}
+coxph(formula(paste("Surv(LFS_YEARS,LFS_STATUS) ~",  paste(any2, collapse = "+"))),
+              clinical_all)
+```
+
+Having 45 or 47 chromosomes is also associated with LFS.
+
+```{r}
+coxph(formula(paste("Surv(LFS_YEARS,LFS_STATUS) ~",  paste(kar2, collapse = "+"))),
+              clinical_all)
+```
+
+Trisomy8, monosomy7 and rare additions are associated with LFS.
+
+
+```{r}
+coxph(Surv(LFS_YEARS,LFS_STATUS) ~ monoy, clinical_all, subset = SEX == "M")
+```
+
+# Issues
+
+- Individuals with age lower than 50. Exclude?
+- Some individuals had bone marrow blasts proportions with decimals and other with whole number. Similar effects for WBC, ANC, and HB. Make uniform?
