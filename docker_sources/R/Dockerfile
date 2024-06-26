@@ -9,3 +9,12 @@ RUN R -e 'BiocManager::install(c("FactoMineR", "missMDA","FactoInvestigate", "cl
 
 # Install survival R packages
 RUN R -e 'BiocManager::install(c("survival", "survminer", "cmprsk"))'
+
+# Install graphical packages (v.1.1)
+RUN R -e 'BiocManager::install(c("pheatmap"))'
+
+# Install tsne (v.1.2)
+RUN R -e 'BiocManager::install(c("Rtsne"))'
+
+# Install ipssm (v.1.3)
+RUN R -e 'devtools::install_github("papaemmelab/ipssm",ref = "main")'
