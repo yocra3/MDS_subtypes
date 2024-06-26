@@ -24,7 +24,7 @@ library(cowplot)
 ```
 
 ```{r}
-mutation <- read_tsv("./data/IPSSMol/df_mut.tsv")
+mutation <- read_tsv("../data/IPSSMol/df_mut.tsv")
 ```
 
 ```{r}
@@ -35,14 +35,61 @@ The dataset contains `r nrow(mutation)` individuals and `r ncol(mutation)` varia
 
 # Data exploration
 
+```{r}
+mut_sing <- mutation[, 1:127] ## Remove columns having subtypes of TP53 and TET2
+```
+
+
 ## Mutations per individual
 
 ```{r}
-data.frame(n = rowSums(mutation[, -1])) %>%
+data.frame(n = rowSums(mut_sing[, -1])) %>%
   ggplot(aes(x = n)) +
-  geom_histogram() +
+  geom_histogram(binwidth = 1) +
+  xlab("Mutations per individual") +
   theme_bw()
+
+data.frame(n = rowSums(mut_sing[, -1])) %>%
+    mutate(intervals = cut(n, 
+          breaks = c(-1, 0, 1, 2, 4, 20), 
+           labels = c("0", "1", "2", "3-4", "4+"))) %>%
+    count(intervals) %>%
+    mutate(perc = round(n/sum(n)*100, 1))
+
 ```
+
+Most patients (~90%) have mutations, with half of the patients having 3 or more mutations. 
+
+## Mutations frequency
+
+```{r}
+data.frame(n = colMeans(mut_sing[, -1])) %>%
+  ggplot(aes(x = n*100)) +
+  geom_histogram(binwidth = 1) +
+  xlab("Mutation frequency") +
+  theme_bw()
+
+data.frame(n = colMeans(mut_sing[, -1])) %>%
+    mutate(intervals = cut(n*100, 
+          breaks = c(-1, 1, 5, 10, 20, 50), 
+           labels = c("<1%", "1-5%", "5-10%", "10-20%", "20-50%"))) %>%
+    count(intervals) %>%
+    mutate(perc = round(n/sum(n)*100, 1))
+
+mut_sing %>% 
+  pivot_longer(2:127, names_to = c("Gene")) %>%
+  group_by(Gene) %>%
+  summarise(n = sum(value),
+            prop = round(mean(value)*100, 1)) %>%
+  arrange(desc(n))
+```
+
+Most mutations were very rare, being present in less than 1% of the patients. Other mutations are much frequent, such as TET2, ASXL1 or SF3B1. 
+
+
+
+
+
 
 ```{r}
 clin_cyto <- clinical_all %>%
