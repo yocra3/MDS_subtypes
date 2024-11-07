@@ -55,3 +55,4 @@ rsconnect/
 # Other files
 *.png
 *.pdf
+*.pyc

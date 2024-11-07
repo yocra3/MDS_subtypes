@@ -18,3 +18,10 @@ RUN R -e 'BiocManager::install(c("Rtsne"))'
 
 # Install ipssm (v.1.3)
 RUN R -e 'devtools::install_github("papaemmelab/ipssm",ref = "main")'
+
+# Install umap (v.1.4)
+RUN R -e 'BiocManager::install(c("umap"))'
+
+# Install GO related packages (v.1.5)
+RUN R -e 'BiocManager::install(c("GOfuncR", "Homo.sapiens"))'
+
