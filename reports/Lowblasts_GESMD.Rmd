@@ -1,0 +1,509 @@
+---
+title: "GESMD low blasts"
+author: "Carlos Ruiz"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::downcute:
+    toc_depth: 3
+    downcute_theme: "default"
+    lightbox: true
+    thumbnails: true
+    gallery: true
+    use_bookdown: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+
+## Preparación
+
+```{r}
+library(MASS)
+library(rpart)
+library(cowplot)
+library(pheatmap)
+library(survminer)
+library(survival)
+library(tidyverse)
+```
+
+```{r}
+load("../results/clustering/lowblast_pc_clustering_raw.Rdata")
+load("../results/gesmd_data_low.Rdata")
+```
+
+```{r}
+kar_events <- c("delY", "del11q", "del20q", "del7q",  "plus8",  "del7")
+sel_muts <- c("TET2", "ASXL1", "SRSF2", "DNMT3A", "RUNX1", 
+              "STAG2", "U2AF1", "EZH2", "ZRSR2", "TET2bi", "TET2other")
+```
+
+## Classify individuals 
+
+```{r}
+gesmd_low$clust <- predict(tree_labels, gesmd_low, type = "class")
+gesmd_low$clust <- droplevels(gesmd_low$clust )
+table(gesmd_low$clust)
+group_cols <- c("#E69F00", "#56B4E9", "#009E73", 
+                                "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+scale <-   scale_color_manual(values = group_cols) 
+scale_fill <-   scale_fill_manual(values = group_cols) 
+```
+
+
+
+## Correlación con variables usadas en el clustering
+
+### Variables clínicas
+
+```{r}
+clin_vars <- c("BM_BLAST", "PB_BLAST", "WBC", "ANC", "MONOCYTES", "HB", "logPLT")
+names(clin_vars) <- clin_vars
+```
+
+
+```{r}
+names(clin_vars) <- clin_vars
+low_clin_plots <- lapply(clin_vars, function(var){
+    ggplot(gesmd_low, aes(x = .data[[var]])) +
+        geom_histogram() +
+        facet_grid(clust ~ .) +
+        theme_bw()
+})
+```
+
+```{r, fig.width=6, fig.height=6}
+plot_grid(plotlist = low_clin_plots[1:3], nrow = 1)
+plot_grid(plotlist = low_clin_plots[4:6], nrow = 1)
+plot_grid(plotlist = low_clin_plots[7], nrow = 1)
+```
+
+```{r, fig.height=10, fig.width=10}
+gesmd_low %>%
+    select(all_of(clin_vars), clust) %>%
+    pivot_longer(cols = !clust, names_to = "Cell", values_to = "value") %>%
+  mutate(Cell = factor(Cell, levels = clin_vars)) %>%
+  ggplot(aes(x = value, color = clust)) +
+  geom_density() +
+  scale +
+  facet_wrap(~ Cell, scale = "free") +
+  theme_bw()
+```
+
+```{r}
+gesmd_low %>%
+    select(ANC, PB_BLAST, WBC, ANC, MONOCYTES, clust) %>%
+    pivot_longer(cols = !clust, names_to = "Cell", values_to = "value") %>%
+    mutate(category = cut(value, breaks = c(-0.1, 1, 2, 3, 4, 5, 10, 20), 
+                            labels = c("0", "1", "2", "3", "4", "5-10", "10+"))) %>%
+    group_by(Cell, category, clust) %>%
+    summarize(n_cat = n()) %>%
+    group_by(Cell, clust) %>%
+    mutate(prop = n_cat/sum(n_cat)) %>%
+  ggplot(aes(x = clust, y = prop, fill = category)) +
+    geom_bar(stat = "identity") +
+    facet_wrap(~ Cell) +
+    ylab("Proportion") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
+
+```
+
+```{r}
+gesmd_low %>%
+    select(HB, logPLT, clust) %>%
+    pivot_longer(cols = !clust, names_to = "Cell", values_to = "value") %>%
+    ggplot(aes(y = value, x = clust)) + 
+    geom_violin() +
+    facet_wrap(~Cell, scales = "free_y") +
+    theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+```
+
+Variables with poisson distribution
+
+```{r}
+clusters <- levels(gesmd_low$clust)
+poisson <- c("BM_BLAST", "WBC", "ANC", "MONOCYTES")
+names(poisson) <- c("BM_BLAST", "WBC", "ANC", "MONOCYTES")
+res <- lapply(poisson, function(var){
+    cell_test <- lapply(seq_len(length(clusters) - 1), function(i){
+      cl <- clusters[i]
+     tmp <- mutate(gesmd_low, cluster = relevel(clust, cl))
+     poiss_lm <- summary(glm(formula (paste(var, " ~ cluster + SEX + AGE")), tmp, 
+                      family = "poisson"))
+     coefs <- poiss_lm$coefficients[-1, ]
+     coef_df <- as_tibble(coefs[, c(1, 4)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              HR = exp(Estimate))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+  out <- mutate(cell_test, 
+                Cell = var) %>%
+    filter(HR > 1 & !Comp_clust %in% c("AGE", "SEXM")   ) %>%
+    arrange(P_value)
+  out
+})
+res
+
+```
+
+Variables with negative binomial distribution
+
+```{r}
+pb_res <- lapply(seq_len(length(clusters) - 1), function(i){
+      cl <- clusters[i]
+     tmp <- mutate(gesmd_low, cluster = relevel(clust, cl))
+     nb_lm <- summary(glm.nb(PB_BLAST ~ cluster + SEX + AGE, tmp))
+     coefs <- nb_lm$coefficients[-1, ]
+     coef_df <- as_tibble(coefs[, c(1, 4)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              HR = exp(Estimate))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+mutate(pb_res, Cell = "PB_BLAST") %>%
+    filter(HR > 1) %>%
+    arrange(P_value)
+```
+
+Variables modeled with a normal
+
+```{r}
+normal <- c("HB", "logPLT")
+names(normal) <- normal
+norm_res <- lapply(normal, function(var){
+    cell_test <- lapply(seq_len(length(clusters) - 1), function(i){
+      cl <- clusters[i]
+     tmp <- mutate(gesmd_low, cluster = relevel(clust, cl))
+     lm <- summary(lm(formula (paste(var, " ~ cluster + SEX + AGE")), tmp))
+     coefs <- lm$coefficients[-1, ]
+     coef_df <- as_tibble(coefs[, c(1, 4)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              Beta = Estimate)
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, Beta, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+  out <- mutate(cell_test, 
+                Cell = var) %>%
+    filter(Beta > 0 & !Comp_clust %in% c("AGE", "SEX")   ) %>%
+    arrange(P_value)
+  out
+})
+norm_res
+
+```
+
+Se ven numerosas diferencias entre los clusters en las variables clínicas. 
+
+
+
+### Kariotipos
+
+```{r}
+kar_events <- c(kar_events, "complex")
+names(kar_events) <- kar_events
+kar_tabs <- lapply(kar_events, function(x) table(gesmd_low[[x]], gesmd_low$clust))
+kar_tabs_lowblasts <- sapply(kar_tabs, function(x) prop.table(x, margin = 2)[2, ])*100
+
+pheatmap(mat = kar_tabs_lowblasts, display_numbers = TRUE)
+
+
+```
+
+La figura muestra la proporción de individuos de un cluster que tienen el evento kariotípico. En los clusters definidos por eventos kariotípicos (del20q, 8+ y Y-), todos los pacientes tienen el evento. No obstante, estos eventos también pueden estar en individuos de otros clusteres. Los otros eventos no muestran una distribución particular en ningún cluster.
+
+
+### Mutaciones
+
+```{r}
+names(sel_muts) <- sel_muts
+mut_tabs <- lapply(sel_muts, function(x) table(gesmd_low[[x]], gesmd_low$clust))
+
+mut_tabs_lowblasts <- sapply(mut_tabs, function(x) prop.table(x, margin = 2)[2, ])*100
+pheatmap(mat = mut_tabs_lowblasts, display_numbers = TRUE)
+```
+Se ven diferencias pero el patrón es diferente al IPSSMol 
+```{r}
+mut_res <- lapply(sel_muts[-grep("TET2*", sel_muts)], function(mut){
+    cell_test <- lapply(seq_len(length(clusters) - 1), function(i){
+      cl <- clusters[i]
+     tmp <- mutate(gesmd_low, cluster = relevel(clust, cl))
+     mut_binom <- summary(glm(formula (paste(mut, " ~ cluster + SEX + AGE")), tmp, 
+                      family = "binomial"))
+     coefs <- mut_binom$coefficients[-1, ]
+     coef_df <- as_tibble(coefs[, c(1, 4)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              HR = exp(Estimate))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+  out <- mutate(cell_test, 
+                Mutation = mut) %>%
+    filter(HR > 1 & !Comp_clust %in% c("AGE", "SEXM")   ) %>%
+    arrange(P_value)
+  out
+})
+mut_res
+```
+
+
+
+### Edad
+
+```{r}
+ggplot(gesmd_low, aes(x = AGE)) +
+        geom_histogram() +
+        facet_grid(clust ~ .) +
+        theme_bw()
+```
+
+```{r}
+gesmd_low %>%
+  ggplot(aes(x = AGE, color = clust)) +
+  geom_density() +
+  scale +
+  theme_bw()
+```
+
+
+```{r}
+gesmd_low %>%
+    ggplot(aes(y = AGE, x = clust)) + 
+    geom_violin() +
+    theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+```
+
+```{r}
+age_test <- lapply(clusters, function(cl){
+     tmp <- mutate(gesmd_low, cluster = relevel(clust, cl))
+     lm <- summary(lm(AGE ~ cluster + SEX, tmp))
+     coefs <- lm$coefficients[-1, ]
+     coef_df <- as_tibble(coefs[, c(1, 4)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              Beta = Estimate)
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, Beta, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+age_test %>%
+    filter( Beta > 0 & !Comp_clust %in% "SEXM"   ) %>%
+    arrange(P_value)
+
+```
+
+Se ven diferencias similares al IPSSM
+
+
+### Sexo
+
+```{r}
+sex_prop <- prop.table(table(gesmd_low$clust, gesmd_low$SEX), margin = 1)
+sex_prop_df <- tibble(cluster = rownames(sex_prop), propF = sex_prop[, 1])
+chisq.test(table(gesmd_low$clust, gesmd_low$SEX))
+```
+
+```{r}
+ggplot(sex_prop_df, aes(y = propF*100, x = cluster)) +
+        geom_bar(stat = "identity") +
+        theme_bw() +
+        geom_hline(yintercept = mean(gesmd_low$SEX == "F")*100,
+            linetype = "dashed") +
+            ylab("Proportion of Females") 
+
+```
+
+```{r}
+sex_test <- lapply(clusters[clusters != "Y-"], function(cl){
+     tmp <- mutate(gesmd_low, cluster = relevel(clust, cl)) %>%
+       filter(cluster != "Y-") %>%
+       mutate(cluster = droplevels(cluster),
+              SEX = ifelse(SEX == "M", 1, 0))
+     binom <- summary(glm(SEX ~ cluster + AGE, tmp, family = "binomial"))
+     coefs <- binom$coefficients[-1, ]
+     coef_df <- as_tibble(coefs[, c(1, 4)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              HR = exp(Estimate))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+sex_test %>%
+    filter( HR > 1 & !Comp_clust %in% "AGE"   ) %>%
+    arrange(P_value)
+
+```
+
+Se ven diferencias consistentes en el sexo.
+
+
+### IPSSM
+
+```{r}
+table(gesmd_low$clust, gesmd_low$IPSSM) %>%
+    as.matrix() %>%
+    pheatmap(display_numbers = TRUE, cluster_cols = FALSE)
+```
+
+Número de individuos por grupo IPSSM
+
+
+
+### IPSSR
+
+```{r}
+gesmd_low <- gesmd_low %>%
+  mutate(IPSSR = gsub("IPSSR_GRUPO_RIESGO_", "", IPSSR),
+         IPSSR = factor(IPSSR, levels = c("MUY_BAJO", "BAJO", "INT", "ALTO", "MUY_ALTO")))
+table(gesmd_low$clust, gesmd_low$IPSSR) %>%
+    as.matrix() %>%
+    pheatmap(display_numbers = TRUE, cluster_cols = FALSE)
+```
+
+Número de individuos por grupo IPSSR
+
+```{r}
+clist_ipssm_mat_prop <- prop.table(table(gesmd_low$clust, gesmd_low$IPSSR), margin = 1) %>%
+    as.matrix()*100 
+clist_ipssm_mat_prop <- clist_ipssm_mat_prop[rowMeans(!is.na(clist_ipssm_mat_prop)) == 1, ]
+pheatmap(clist_ipssm_mat_prop, display_numbers = TRUE, cluster_cols = FALSE)
+```
+Las proporciones son un poco diferentes. No obstante, faltan muchos pacientes.
+
+
+
+### Supervivencia
+
+Los análisis de supervivencia los hacemos solo con los clusters más grandes (Low WBC, High WBC, TET2 bi y TET2 mono) para tener un buen tamaño muestral. 
+
+```{r}
+main_clusts <- c("Low WBC", "High WBC", "TET2 mono", "TET2 bi")
+names(main_clusts) <- main_clusts
+
+main_low <- subset(gesmd_low, clust %in% main_clusts) %>%
+      mutate(clust = droplevels(clust))
+```
+
+
+```{r}
+surv_low <- survfit(formula = Surv(OS_YEARS,OS_STATUS) ~ clust, main_low) %>%
+    ggsurvplot(data = main_low, surv.median.line = "hv", 
+               palette = group_cols)
+
+surv_low$plot
+```
+
+
+```{r}
+os_raw_test <- lapply(main_clusts, function(cl){
+     tmp <- mutate(main_low, cluster = relevel(clust, cl))
+     os <- summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cluster + AGE + SEX , tmp))
+     coefs <- os$coefficients
+     coef_df <- as_tibble(coefs[, c(1, 5)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              HR = exp(coef))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+os_raw_test %>%
+    filter(HR > 1 & Comp_clust %in% main_clusts   ) %>%
+    arrange(P_value)
+
+```
+
+
+
+```{r}
+os_test <- lapply(main_clusts, function(cl){
+     tmp <- mutate(main_low, cluster = relevel(clust, cl))
+     os <- summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cluster + AGE + SEX + IPSSR, tmp))
+     coefs <- os$coefficients
+     coef_df <- as_tibble(coefs[, c(1, 5)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              HR = exp(coef))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+os_test %>%
+    filter(HR > 1 & Comp_clust %in% main_clusts) %>%
+    arrange(P_value)
+
+```
+
+No encajan mucho los resultados de supervivencia ajustados por IPSSR.
+
+## Mutaciones
+
+
+
+### Adjusted for IPSSR
+
+```{r}
+test_muts <- sel_muts[-grep("TET2", sel_muts)]
+
+mut_hr_clust2 <- lapply(test_muts, function(gene){
+    lapply(main_clusts, function(cl){
+     covars <- " + AGE + IPSSR"
+     if(cl != "Y-"){
+       covars <- paste(covars, "+ SEX")
+     }
+        mod <- coxph(formula(paste("Surv(OS_YEARS,OS_STATUS) ~", gene, covars)), 
+            main_low, subset = clust == cl)
+        coef <- summary(mod)$coefficients
+        hr <- exp(coef[1, 1])
+        pval <- coef[1, 5]
+        freq <- mean(main_low[[gene]][main_low$clust == cl])
+        N <- sum(main_low[[gene]][main_low$clust == cl])
+        data.frame(HR = hr, Pvalue = pval, Cluster = cl, Gene = gene, Freq = freq, N = N )
+    }) %>% Reduce(f = rbind) %>%
+        as_tibble()
+}) %>% Reduce(f = rbind) 
+```
+
+```{r}
+mut_hr_col2 <- mutate(mut_hr_clust2,
+                     HR = ifelse(N < 10, 1, HR),
+                     Pvalue = ifelse(N < 10, 1, Pvalue),
+    Sig = ifelse(Pvalue < 0.05, "Signif", "Not-signif"),
+    Direction = ifelse(HR > 1, "Risk", "Protective"), 
+    Color = factor( paste(Direction, Sig), levels = c("Protective Signif", "Protective Not-signif",
+        "Risk Signif", "Risk Not-signif", "Undetermined")) )
+
+
+mut_hr_col2 %>%
+    filter(Gene %in% c("ASXL1", "DNMT3A", "RUNX1", "SRSF2", "U2AF1")) %>%
+    ggplot(aes(x = Cluster, y = HR, fill = Color)) +
+        geom_bar(stat = "identity") +
+        theme_bw() +
+        scale_y_continuous(transform = "log2") +
+        facet_wrap(~ Gene, scales = "free_x") +
+        scale_fill_manual(name = "", values = c("darkgreen", "darkred", "grey"))
+```
