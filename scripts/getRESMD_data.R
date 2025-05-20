@@ -3,6 +3,7 @@ library(lubridate)
 #library(ssh)
 library(sys)
 library(RPostgres)
+library(ipssm)
 
 #primero conectar tunel SSH via fichero bash
 ssh -i private.pem -N -L 5556:prehm-pro-rds-i.cfeequry4htk.eu-west-3.rds.amazonaws.com:5432 ec2-user@35.181.32.109
@@ -21,7 +22,7 @@ fields_df <- Reduce(rbind, lapply(fields, function(x) tibble(field = x))) %>%
 
 
 
-## Get patients
+## Get patients ####
 all_patients <- dbGetQuery(con, "SELECT id, register_number FROM patient")
 
 
@@ -38,16 +39,25 @@ all_person <- dbGetQuery(con, sprintf(
 
 all_diagnosis <- dbGetQuery(con, sprintf(
   "select p.id, register_number, birthdate, diagnosis_date, li1.code as smd_secundario,
-  li2.code as who2017
+  li2.code as who2017, li3.code as who2008
   from patient p 
   join diagnosis_data dd on p.id = dd.id
   left join list_item li1 on dd.smd_id = li1.id
   left join list_item li2 on who2017_id = li2.id
+  left join list_item li3 on who2008_id = li3.id
   where register_number = any(array[%s])", all_register)) %>%
   as_tibble() %>% 
   mutate(AGE = time_length(difftime(diagnosis_date, birthdate), "years"))
 
-## Estado
+all_diagnosis$who2017[is.na(all_diagnosis$who2017) & all_diagnosis$who2008=="WHO2008_SINDROME_5Q"] <- "WHO2017_SMD_DEL_5Q"
+all_diagnosis$who2017[is.na(all_diagnosis$who2017) & all_diagnosis$who2008=="WHO2008_LMMC"] <- "WHO2017_LMMCX"
+all_diagnosis$who2017[is.na(all_diagnosis$who2017) & all_diagnosis$who2008=="WHO2008_CRDM"] <- "WHO2017_SMD_DM"
+all_diagnosis$who2017[is.na(all_diagnosis$who2017) & all_diagnosis$who2008=="WHO2008_AREB_1"] <- "WHO2017_SMD_EB_1"
+all_diagnosis$who2017[is.na(all_diagnosis$who2017) & all_diagnosis$who2008=="WHO2008_AREB_2"] <- "WHO2017_SMD_EB_2"
+all_diagnosis$who2017[is.na(all_diagnosis$who2017) & all_diagnosis$who2008=="WHO2008_ARS"] <- "WHO2017_SMD_SA_DU"
+
+
+## Estado ####
 estado_actual <- dbGetQuery(con, 
   sprintf("select register_number, assessment_date, death_reason,
   status, disease_state_death 
@@ -133,8 +143,8 @@ hemogram <- dbGetQuery(con,
          WBC = leukocytes,
          ANC = neutrophils,
          HB = hemoglobin,
-         logPLT = log(platelets))  %>%
-  select(register_number, MONOCYTES, PB_BLAST, WBC, ANC, HB, logPLT)
+         PLT = platelets)  %>%
+  select(register_number, MONOCYTES, PB_BLAST, WBC, ANC, HB, PLT)
 
 
 morphological <- dbGetQuery(con, sprintf(
@@ -153,12 +163,31 @@ morphological <- morphological[!duplicated(morphological$register_number), ]
 
 ### Karyotype ####
 cariotype_raw <- dbGetQuery(con,
-  sprintf("select register_number, cariotype_description 
+  sprintf("select register_number, cariotype_description, ipssr_cytogenetic 
     from patient p 
     join analytical_data ad on p.id = ad.patient_id 
     join citogenetical_data cd on cd.cito_data_id = ad.id 
     where analysis_time = 1045 and register_number in (%s)", all_register)) %>%
     as_tibble()
+
+
+ipssr_cyto <- unique(cariotype_raw$ipssr_cytogenetic  )
+ipssr_cyto <- ipssr_cyto[!is.na(ipssr_cyto)]
+codigos_ipssr_cyto <- dbGetQuery(con, 
+                            paste("select id, code from list_item where id in (", 
+                                  paste(ipssr_cyto, collapse = ","), ")")
+) %>%
+  mutate(CYTO_IPSSR = code,
+         CYTO_IPSSR =  recode(CYTO_IPSSR, "IPSSR_CITOGENETICO_MUY_POBRE" = "Very Poor",
+                              "IPSSR_CITOGENETICO_POBRE" = "Poor",
+                              "IPSSR_CITOGENETICO_INTERMEDIO" = "Intermediate",
+                              "IPSSR_CITOGENETICO_BUENO" = "Good",
+                              "IPSSR_CITOGENETICO_MUY_BUENO" = "Very Good")) %>%
+  select(-code) 
+ 
+  
+cariotype_raw2 <- left_join(cariotype_raw, codigos_ipssr_cyto, 
+                             by = join_by(ipssr_cytogenetic == id)) 
 
 cariotype <- dbGetQuery(con,
   sprintf("select register_number, code, has_anomaly, cito_data_id 
@@ -190,7 +219,11 @@ cariotype_tab <- cariotype %>%
   right_join(mapping, by = "code") %>%
   mutate(value = ifelse(has_anomaly, 1, 0)) %>%
   select(register_number, event, value) %>%
-  pivot_wider(names_from = event, values_from = value)
+  pivot_wider(names_from = event, values_from = value) %>%
+  mutate(del7_7q = ifelse(del7 == 1 | del7q == 1, 1, 0),
+         del17_17p = NA) %>% 
+  left_join(select(cariotype_raw2, register_number, CYTO_IPSSR), by = "register_number" )
+
 # Mutations ####
 
 mutations_sum <- dbGetQuery(con,
@@ -235,17 +268,33 @@ mutations_tab <- select(mutations2, register_number, gen, value) %>%
   summarize(mut = sum(value)) %>%
   mutate(mut = ifelse(!gen %in% c("TP53", "TET2") & mut > 1, 1, mut)) %>%
   pivot_wider(names_from = gen, values_from = mut) %>%
-  mutate(TET2bi = ifelse(TET2 > 1, 1, 0),
-         TET2other = ifelse(TET2 == 1, 1, 0),
-         TET2 = ifelse(TET2 == 0, 0, 1), 
-         TP53multi = ifelse(TP53 > 1, 1, 0), 
-         TP53 = ifelse(TP53 == 0, 0, 1))
-  
+  mutate(TET2 = ifelse(TET2 == 0, 0, 1), 
+         TP53 = ifelse(TP53 == 0, 0, 1),
+         TP53mut = TP53, 
+         TP53loh = NA,
+         MLL_PTD = NA) %>%
+  left_join(mutations2 %>%
+              filter(gen %in% c("TP53", "TET2")) %>%
+              group_by(register_number, gen) %>%
+              mutate(vaf = ifelse(is.na(vaf), 0, vaf)) %>%
+              summarize(vaf = sum(vaf, na.rm = TRUE)/100) %>%
+              pivot_wider(names_from = gen, values_from = vaf) %>%
+              mutate(TET2bi = ifelse(TET2 >= 0.5, 1, 0), 
+                     TET2other = ifelse(TET2 > 0 & TET2 < 0.5, 1, 0),
+                     TP53multi = ifelse(TP53 >= 0.5, 1, 0)) %>%
+              select(-TET2, -TP53),
+            by = "register_number")
+
+
+
 ## Select mutations for this study
 sel_muts <- c("TET2", "ASXL1", "SRSF2", "DNMT3A", "RUNX1", 
               "STAG2", "U2AF1", "EZH2", "ZRSR2", "TET2bi", "TET2other",
-              "SF3B1", "TP53multi")
-mutations_sel <- select(mutations_tab, register_number, all_of(sel_muts))
+              "SF3B1", "TP53multi", "FLT3", "BCOR", "BCORL1", "CBL",
+              "CEBPA",	"ETV6",	"IDH1",	"IDH2", "KRAS", "NF1", "NPM1",
+              "NRAS",	"SETBP1",	"ETNK1", "GATA2",	"GNB1",	"PHF6",	"PPM1D", "PRPF8",
+              "PTPN11",	"WT1", "MLL_PTD")
+mutations_sel <- select(mutations_tab, register_number, all_of(sel_muts), starts_with("TP53"))
 
   
 mutations2 %>% 
@@ -267,5 +316,24 @@ gesmd_data <- left_join(patient_basic, hemogram, by = "register_number") %>%
                                                ifelse(BM_BLAST > 5 & BM_BLAST <= 10, "MDS-IB1", "Other")))))))
 save(gesmd_data, file = "results/gesmd_data_all.Rdata")
 
+write.csv(gesmd_data, file = "results/gesmd_data.csv")
+
+## Compute IPSSM ####
+ipssm_raw <- IPSSMread("results/gesmd_data.csv")
+ipssm_process <- IPSSMprocess(ipssm_raw)
+ipssm_res <- IPSSMmain(ipssm_process)
+ipssm_annot <- IPSSMannotate(ipssm_res)
+## No funciona. Falta mucha información
+
 gesmd_low <- filter(gesmd_data, consensus == "Low blasts")
 save(gesmd_low, file = "results/gesmd_data_low.Rdata")
+
+## Match with Raul
+raul_data <- read_csv("pacientesngsvcf.csv") %>%
+  mutate(selected = ifelse(patient_id %in% gesmd_data$register_number, "Included", "Missing")) %>%
+  left_join(select(gesmd_data, register_number, consensus) %>%
+              mutate(register_number = as.double(register_number)),
+            by = join_by(patient_id == register_number))
+
+table(raul_data$ngs_done, raul_data$selected)
+table(raul_data$ngs_done, !is.na(raul_data$consensus))

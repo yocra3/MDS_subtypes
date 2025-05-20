@@ -5,6 +5,7 @@
 # Folders
 data/
 results/
+figures/
 
 # Session Data files
 .RData
@@ -56,3 +57,6 @@ rsconnect/
 *.png
 *.pdf
 *.pyc
+*.html
+
+

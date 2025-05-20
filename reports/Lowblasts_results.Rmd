@@ -1,0 +1,821 @@
+---
+title: "Main results of low-blasts clustering"
+author: "Carlos Ruiz"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::downcute:
+    toc_depth: 3
+    downcute_theme: "default"
+    lightbox: true
+    thumbnails: true
+    gallery: true
+    use_bookdown: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## Preparación
+
+```{r}
+library(MASS)
+library(cluster)
+library(rpart)
+library(ca)
+library(cowplot)
+library(pheatmap)
+library(survminer)
+library(survival)
+library(tidyverse)
+library(DT)
+library(rmdformats)
+library(ggpubr)
+```
+
+```{r}
+load("../results/clustering/lowblast_filter_pc_clustering.Rdata")
+load("../results/clustering/lowblast_filter_pc_clustering_raw.Rdata")
+load("../results/preprocess/clinical_preproc.Rdata")
+
+```
+
+```{r}
+kar_events <- c("delY", "del11q", "del20q", "del7q",  "plus8",  "del7")
+sel_muts <- c("TET2", "ASXL1", "SRSF2", "DNMT3A", "RUNX1", 
+              "STAG2", "U2AF1", "EZH2", "ZRSR2", "TET2bi", "TET2other")
+#clinical_low$clust <- clinical_low$clust_collapsed
+clinical_low$logPLT <- log(clinical_low$PLT)
+```
+
+
+## Project justification
+
+Correlation between consensus classification and IPSSM
+
+```{r}
+cons_ipss_tab <- table(clinical$consensus, clinical$IPSSM)
+pilltabs(cons_ipss_tab)
+```
+
+```{r}
+consensus_ipssm_prop <- prop.table(table(clinical$consensus, clinical$IPSSM), margin = 1) %>%
+    as.matrix()*100 
+pheatmap(consensus_ipssm_prop, display_numbers = TRUE, cluster_cols = FALSE)
+```
+
+## Data descriptives
+
+```{r}
+getIQR <- function(vec){
+   sprintf("%.1f (%.1f-%.1f)", 
+           median(vec, na.rm = TRUE), 
+           quantile(vec, probs = 0.25, na.rm = TRUE),
+           quantile(vec, probs = 0.75, na.rm = TRUE))
+}
+```
+
+
+```{r}
+descriptives <- clinical_low %>%
+  group_by(clust) %>%
+  summarize(N = sprintf("%i (%.1f%%)", n(), n()/nrow(clinical_low)*100),
+            Females = sprintf("%i (%.1f%%)", sum(SEX == "F"), mean(SEX == "F")*100),
+            Age = getIQR(AGE),
+            `Bone Marrow blasts` = getIQR(BM_BLAST),
+            `Whole Blood Cell count` = getIQR(WBC),
+            `Neutrophil Count` = getIQR(ANC),
+            HB = getIQR(HB),
+            logPLT = getIQR(logPLT),
+            `Y-` =  sprintf("%i (%.1f%%)", sum(delY == 1), mean(delY == 1)*100),
+            `7-` =  sprintf("%i (%.1f%%)", sum(del7 == 1), mean(del7 == 1)*100),
+            `8+` =  sprintf("%i (%.1f%%)", sum(plus8 == 1), mean(plus8 == 1)*100),
+            del20q =  sprintf("%i (%.1f%%)", sum(del20q == 1), mean(del20q == 1)*100),
+            ASXL1 =  sprintf("%i (%.1f%%)", sum(ASXL1 == 1), mean(ASXL1 == 1)*100),
+            DNMT3A =  sprintf("%i (%.1f%%)", sum(DNMT3A == 1), mean(DNMT3A == 1)*100),
+            RUNX1 =  sprintf("%i (%.1f%%)", sum(RUNX1 == 1), mean(RUNX1 == 1)*100),
+            `IPSSM Very-Low` = sprintf("%i (%.1f%%)", sum(IPSSM == "Very-Low", na.rm = TRUE), mean(IPSSM == "Very-Low", na.rm = TRUE)*100),
+            `IPSSM Low` = sprintf("%i (%.1f%%)", sum(IPSSM == "Low", na.rm = TRUE), mean(IPSSM == "Low", na.rm = TRUE)*100),
+            `IPSSM Moderate-Low` = sprintf("%i (%.1f%%)", sum(IPSSM == "Moderate-Low", na.rm = TRUE), mean(IPSSM == "Moderate-Low", na.rm = TRUE)*100),
+            `IPSSM Moderate-High` = sprintf("%i (%.1f%%)", sum(IPSSM == "Moderate-High", na.rm = TRUE), mean(IPSSM == "Moderate-High", na.rm = TRUE)*100),
+            `IPSSM High` = sprintf("%i (%.1f%%)", sum(IPSSM == "High", na.rm = TRUE), mean(IPSSM == "High", na.rm = TRUE)*100),
+            `IPSSM Very-High` = sprintf("%i (%.1f%%)", sum(IPSSM == "Very-High", na.rm = TRUE), mean(IPSSM == "Very-High", na.rm = TRUE)*100)) %>%
+  rbind(tibble(clust = "Total", 
+      
+clinical_low %>%
+  summarize(N = sprintf("%i (%.1f%%)", n(), n()/nrow(clinical_low)*100),
+            Females = sprintf("%i (%.1f%%)", sum(SEX == "F"), mean(SEX == "F")*100),
+            Age = getIQR(AGE),
+            `Bone Marrow blasts` = getIQR(BM_BLAST),
+            `Whole Blood Cell count` = getIQR(WBC),
+            `Neutrophil Count` = getIQR(ANC),
+            HB = getIQR(HB),
+            logPLT = getIQR(logPLT),
+            `Y-` =  sprintf("%i (%.1f%%)", sum(delY == 1), mean(delY == 1)*100),
+            `7-` =  sprintf("%i (%.1f%%)", sum(del7 == 1), mean(del7 == 1)*100),
+            `8+` =  sprintf("%i (%.1f%%)", sum(plus8 == 1), mean(plus8 == 1)*100),
+            del20q =  sprintf("%i (%.1f%%)", sum(del20q == 1), mean(del20q == 1)*100),
+            ASXL1 =  sprintf("%i (%.1f%%)", sum(ASXL1 == 1), mean(ASXL1 == 1)*100),
+            DNMT3A =  sprintf("%i (%.1f%%)", sum(DNMT3A == 1), mean(DNMT3A == 1)*100),
+            RUNX1 =  sprintf("%i (%.1f%%)", sum(RUNX1 == 1), mean(RUNX1 == 1)*100),
+            `IPSSM Very-Low` = sprintf("%i (%.1f%%)", sum(IPSSM == "Very-Low", na.rm = TRUE), mean(IPSSM == "Very-Low", na.rm = TRUE)*100),
+            `IPSSM Low` = sprintf("%i (%.1f%%)", sum(IPSSM == "Low", na.rm = TRUE), mean(IPSSM == "Low", na.rm = TRUE)*100),
+            `IPSSM Moderate-Low` = sprintf("%i (%.1f%%)", sum(IPSSM == "Moderate-Low", na.rm = TRUE), mean(IPSSM == "Moderate-Low", na.rm = TRUE)*100),
+            `IPSSM Moderate-High` = sprintf("%i (%.1f%%)", sum(IPSSM == "Moderate-High", na.rm = TRUE), mean(IPSSM == "Moderate-High", na.rm = TRUE)*100),
+            `IPSSM High` = sprintf("%i (%.1f%%)", sum(IPSSM == "High", na.rm = TRUE), mean(IPSSM == "High", na.rm = TRUE)*100),
+            `IPSSM Very-High` = sprintf("%i (%.1f%%)", sum(IPSSM == "Very-High", na.rm = TRUE), mean(IPSSM == "Very-High", na.rm = TRUE)*100))
+         ))
+
+
+descriptives_tab <- t(descriptives[, -1])
+colnames(descriptives_tab) <- as.character(descriptives$clust)
+datatable(descriptives_tab)
+```
+
+## Clinical variables
+
+### Bone Marrow Blasts
+
+```{r}
+clinical_low %>%
+    mutate(category = cut(BM_BLAST, breaks = c(-0.1, 1, 2, 3, 4, 5, 10, 20), 
+                            labels = c("0", "1", "2", "3", "4", "5-10", "10+"))) %>%
+    group_by(category, clust) %>%
+    summarize(n_cat = n()) %>%
+    group_by(clust) %>%
+    mutate(prop = n_cat/sum(n_cat),
+           category = factor(category, levels = as.character(4:0))) %>%
+  ggplot(aes(x = clust, y = prop, fill = category)) +
+    geom_bar(stat = "identity") +
+    theme_bw() +
+    labs(
+    title = "Bone Marrow Blasts",
+    y = "Proportion of individuals",
+    x = "Cluster",
+    fill = "BM (%)") +
+    scale_fill_manual(values = c("#7a0177", "#c51b8a", "#f768a1", "#fa9fb5", "#fde0dd")) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+
+```{r}
+bm_df <-  clinical_low %>%
+  mutate(cl = ifelse(clust %in% c("TET2 bi", "del7"), "High", "Other"))
+bm_high <- summary(glm(BM_BLAST ~ cl, bm_df, family = "poisson"))
+```
+
+TET2bi and del7 have a higher proportion of bone marrow blasts (P = `r sprintf("%.1e", bm_high$coefficients[2, 4], scientific = TRUE)`) than the other clusters.
+
+### Whole Blood Cell count (Giga/L)
+
+```{r}
+ggplot(clinical_low, aes(x = clust, y = WBC)) +
+  geom_boxplot() +
+  theme_bw() +
+    labs(
+    title = "Whole Blood Cells ",
+    y = "WBC (Giga/L)",
+    x = "Cluster") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+```{r}
+wbc_Aberr_TET2High_df <-  clinical_low %>% 
+  subset(clust %in% c("8+", "del7", "del20q", "High Leukopenic",  "TET2 mono", "TET2 bi")) %>%
+  mutate(cl = ifelse(clust %in% c("8+", "del7"), "aber", "Other"))
+wbc_Aberr_TET2High <- summary(glm(WBC ~ cl, wbc_Aberr_TET2High_df, family = "poisson"))
+
+wbc_TET2High_Y_df <-  clinical_low %>% 
+  subset(clust %in% c("del20q", "High Leukopenic", "TET2 bi", "TET2 mono", "Y-")) %>%
+  mutate(cl = ifelse(clust %in% c("Y-"), "Y-", "Other"))
+wbc_TET2High_Y <- summary(glm(WBC ~ cl, wbc_TET2High_Y_df, family = "poisson"))
+
+wbc_Y_Mild_df <-  clinical_low %>% 
+  subset(clust %in% c("Mild Leukopenic", "Y-")) %>%
+  mutate(cl = ifelse(clust == "Y-", "Y-", "Other"))
+wbc_Y_Mild <- summary(glm(WBC ~ cl, wbc_Y_Mild_df, family = "poisson"))
+```
+
+Cluster are ordered as follows:
+
+8+, del7 < High Leukopenic, del20q, TET2 bi, TET2 mono (P = `r sprintf("%.1e", wbc_Aberr_TET2High$coefficients[2, 4], scientific = TRUE)`)
+
+High Leukopenic, del20q, TET2 bi, TET2 mono < Y- (P = `r sprintf("%.1e", wbc_TET2High_Y$coefficients[2, 4], scientific = TRUE)`)
+
+Y- < Mild Leukopenic (P = `r sprintf("%.1e", wbc_Y_Mild$coefficients[2, 4], scientific = TRUE)`)
+
+
+### Hemoglobin (g/dL)
+
+```{r}
+ggplot(clinical_low, aes(x = clust, y = HB)) +
+  geom_boxplot() +
+  theme_bw() +
+    labs(
+    title = "Hemoglobin",
+    y = "HB (g/dL)",
+    x = "Cluster") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+hb_df <-  clinical_low %>%
+  mutate(cl = ifelse(clust == "TET2 bi", "TET2 bi", "Other"))
+hb_TET2Bi <- summary(lm(HB ~ cl + SEX + AGE, hb_df, family = "poisson"))
+```
+
+TET2bi has higher concentration of hemoglobin (P = `r sprintf("%.1e", hb_TET2Bi$coefficients[2, 4], scientific = TRUE)`) than the other clusters.
+
+
+## Kariotipos
+
+```{r}
+clinical_low$complex <- factor(clinical_low$complex, levels = c("non-complex", "complex"))
+kar_events2 <- c("del7", "plus8", "delY", "del20q", "complex")
+names(kar_events2) <- kar_events2
+kar_tabs <- lapply(kar_events2, function(x) table(clinical_low[[x]], clinical_low$clust))
+kar_tabs_lowblasts <- sapply(kar_tabs, function(x) prop.table(x, margin = 2)[2, ])*100
+
+pheatmap(mat = kar_tabs_lowblasts, display_numbers = TRUE)
+```
+
+Kariotype aberrations are mostly confined to 8+, del7 and del20q clusters. 
+
+## Mutations
+
+```{r}
+sel_muts2 <- c("TET2", "TET2other", "TET2bi", "ASXL1", "DNMT3A", "U2AF1", "RUNX1", "SRSF2", "ZRSR2")
+names(sel_muts2) <- sel_muts2
+mut_tabs <- lapply(sel_muts2, function(x) table(clinical_low[[x]], clinical_low$clust))
+
+mut_tabs_lowblasts <- sapply(mut_tabs, function(x) prop.table(x, margin = 2)[2, ])*100
+pheatmap(mat = mut_tabs_lowblasts, display_numbers = TRUE)
+
+select(clinical_low, sel_muts) %>% colMeans() %>%
+  sort(decreasing = TRUE)
+```
+### TET2 bi
+
+```{r}
+clinical_low %>%
+  group_by(clust) %>%
+  summarize(freq = mean(TET2bi)) %>%
+  ggplot(aes(x = clust, y = freq*100)) +
+  geom_bar(stat = "identity", color = "#999999") +
+  theme_bw() +
+  labs(
+    title = "TET2 bi-allelic",
+    y = "Individuals with mutation (%)",
+    x = "Cluster") +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+```
+### TET2 mono
+
+```{r}
+clinical_low %>%
+  group_by(clust) %>%
+  summarize(freq = mean(TET2other)) %>%
+  ggplot(aes(x = clust, y = freq*100)) +
+  geom_bar(stat = "identity", color = "#999999") +
+  theme_bw() +
+  labs(
+    title = "TET2 mono-allelic",
+    y = "Individuals with mutation (%)",
+    x = "Cluster") +
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+```
+
+### ASXL1
+
+```{r}
+clinical_low %>%
+  group_by(clust) %>%
+  summarize(freq = mean(ASXL1)) %>%
+  ggplot(aes(x = clust, y = freq*100)) +
+  geom_bar(stat = "identity") +
+  theme_bw() +
+  labs(
+    title = "ASXL1 mutations",
+    y = "Individuals with mutation (%)",
+    x = "Cluster") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ylim(c(0, 40))
+
+```
+
+```{r}
+asxl1_Ydel20q_other_df <-  clinical_low %>% 
+  subset(clust %in% c("del20q", "High Leukopenic", "Mild Leukopenic", "TET2 mono", "Y-")) %>%
+  mutate(cl = ifelse(clust %in% c("Y-", "del20q"), "alt", "Other"))
+asxl1_Ydel20q_other <- fisher.test(table(asxl1_Ydel20q_other_df$cl,asxl1_Ydel20q_other_df$ASXL1))
+
+asxl1_TET2bi_other_df <-  clinical_low %>% 
+  subset(clust %in% c("High Leukopenic", "Mild Leukopenic", "TET2 mono", "TET2 bi", "8+", "del7")) %>%
+  mutate(cl = ifelse(clust %in% c("TET2 bi", "8+", "del7"), "High", "Other"))
+asxl1_TET2bi_other <- fisher.test(table(asxl1_TET2bi_other_df$cl,asxl1_TET2bi_other_df$ASXL1))
+```
+
+ASXL1 frequency depends on subcluster
+
+Y-, del20q < High and Mild Leukopenic, TET2 mono (P = `r sprintf("%.1e", asxl1_Ydel20q_other$p.value, scientific = TRUE)`)
+
+High and Mild Leukopenic, TET2 mono < TET2 bi, 8+, del7 (P = `r sprintf("%.1e", asxl1_TET2bi_other$p.value, scientific = TRUE)`)
+
+
+### SRSF2
+
+```{r}
+clinical_low %>%
+  group_by(clust) %>%
+  summarize(freq = mean(SRSF2)) %>%
+  ggplot(aes(x = clust, y = freq*100)) +
+  geom_bar(stat = "identity") +
+  theme_bw() +
+  labs(
+    title = "SRSF2 mutations",
+    y = "Individuals with mutation (%)",
+    x = "Cluster") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ylim(c(0, 40))
+
+```
+
+```{r}
+srsf2_groups_df <-  clinical_low %>% 
+  mutate(cl = ifelse(clust %in% c("Chromosomal", "TET2 bi", "TET2 mono", "8+", "del7"), "High", "Low"))
+srsf2_groups <- fisher.test(table(srsf2_groups_df$cl,srsf2_groups_df$SRSF2))
+```
+
+Clusters TET2 mono, TET2 bi, 8+ and del7 have a higher frequency of SRSF2 mutations than Y-, High and Low Leukopenic (P = `r sprintf("%.1e", srsf2_groups$p.value, scientific = TRUE)`)
+
+
+### U2AF1
+
+```{r}
+clinical_low %>%
+  group_by(clust) %>%
+  summarize(freq = mean(U2AF1)) %>%
+  ggplot(aes(x = clust, y = freq*100)) +
+  geom_bar(stat = "identity") +
+  theme_bw() +
+  labs(
+    title = "U2AF1 mutations",
+    y = "Individuals with mutation (%)",
+    x = "Cluster") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ylim(c(0, 40))
+
+```
+
+```{r}
+u2af1_all_del7del20_df <-  clinical_low %>% 
+  mutate(cl = ifelse(clust %in% c("del7", "del20q"), "High", "Other"))
+u2af1_all_del7del20 <- fisher.test(table(u2af1_all_del7del20_df$cl,u2af1_all_del7del20_df$U2AF1))
+```
+
+del7 and del20q subtypes have a much higher frequency of U2AF1 mutations than the rest (P = `r sprintf("%.1e", u2af1_all_del7del20$p.value, scientific = TRUE)`)
+
+### DNMT3A
+
+```{r}
+clinical_low %>%
+  group_by(clust) %>%
+  summarize(freq = mean(DNMT3A)) %>%
+  ggplot(aes(x = clust, y = freq*100)) +
+  geom_bar(stat = "identity") +
+  theme_bw() +
+  labs(
+    title = "DNMT3A mutations",
+    y = "Individuals with mutation (%)",
+    x = "Cluster") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ylim(c(0, 40))
+```
+
+```{r}
+dnmt3a_TET2bi_df <-  clinical_low %>% 
+  mutate(cl = ifelse(clust == "TET2 bi", "TET2 bi", "Other"))
+dnmt3a_TET2bi <- fisher.test(table(dnmt3a_TET2bi_df$cl,dnmt3a_TET2bi_df$DNMT3A))
+```
+
+TET2 bi has much lower frequency of DNMT3A mutations than the other subclusters (P = `r sprintf("%.1e", dnmt3a_TET2bi$p.value, scientific = TRUE)`).
+
+### RUNX1
+
+```{r}
+clinical_low %>%
+  group_by(clust) %>%
+  summarize(freq = mean(RUNX1)) %>%
+  ggplot(aes(x = clust, y = freq*100)) +
+  geom_bar(stat = "identity") +
+  theme_bw() +
+  labs(
+    title = "RUNX1 mutations",
+    y = "Individuals with mutation (%)",
+    x = "Cluster") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ylim(c(0, 40))
+
+```
+
+```{r}
+runx1_YML_HLC_df <-  clinical_low %>% 
+  subset(clust %in% c("del20q", "High Leukopenic", "Mild Leukopenic", "Y-")) %>%
+  mutate(cl = ifelse(clust %in% c("Y-", "Mild Leukopenic"), "Y-", "Other"))
+runx1_YML_HLC <- fisher.test(table(runx1_YML_HLC_df$cl,runx1_YML_HLC_df$RUNX1))
+
+runx1_HLC_TET2_df <-  clinical_low %>% 
+  subset(clust %in% c("del20q", "High Leukopenic", "8+", "del7", "TET2 mono", "TET2 bi")) %>%
+  mutate(cl = ifelse(clust %in% c("del20q", "High Leukopenic"), "Low", "Other"))
+runx1_HLC_TET2 <- fisher.test(table(runx1_HLC_TET2_df$cl,runx1_HLC_TET2_df$RUNX1))
+
+runx1_ML_TET2_df <-  clinical_low %>% 
+  subset(clust %in% c("Y-", "Mild Leukopenic", "8+", "del7", "TET2 mono", "TET2 bi")) %>%
+  mutate(cl = ifelse(clust %in% c("Y-", "Mild Leukopenic"), "Low", "Other"))
+runx1_ML_TET2 <- fisher.test(table(runx1_ML_TET2_df$cl,runx1_ML_TET2_df$RUNX1))
+
+
+```
+
+RUNX1 frequency depends on subcluster
+
+Y-, Mild Leukopenic < High Leukopenic, del20q (P = `r sprintf("%.1e", runx1_YML_HLC$p.value, scientific = TRUE)`)
+
+High Leukopenic, del20q < TET2 bi, TET2 mono, 8+, del7 (P = `r sprintf("%.1e", runx1_HLC_TET2$p.value, scientific = TRUE)`)
+
+Y-, Mild Leukopenic < TET2 bi, TET2 mono, 8+, del7 (P = `r sprintf("%.1e", runx1_ML_TET2$p.value, scientific = TRUE)`)
+
+
+## IPSSM 
+
+```{r}
+clinical_IPSSM <- mutate(clinical_low, 
+                         IPSSM_col = ifelse(IPSSM %in% c("High", "Very-High"), "High/Very-High", 
+                                            ifelse(grepl("Moderate", IPSSM), "Moderate",
+                                                     ifelse(IPSSM == "Low", "Low", "Very-Low"))),
+                         IPSSM_col = factor(IPSSM_col, levels = c("Very-Low", "Low", "Moderate", "High/Very-High")))
+IPSSM_cats <- levels(clinical_IPSSM$IPSSM_col)
+names(IPSSM_cats) <- IPSSM_cats
+```
+
+
+
+```{r}
+clinical_low %>%
+  filter(!is.na(IPSSM)) %>%
+  group_by(clust, IPSSM) %>%
+  summarize(N = n()) %>%
+  group_by(clust) %>%
+  mutate(Freq = N/sum(N)) %>%
+  ggplot(aes(x = clust, y = Freq*100, fill = fct_rev(IPSSM))) +
+  geom_bar(stat = "identity") +
+  theme_bw() +
+  scale_fill_manual(values = c("#d73027", "#f46d43", "#fdae61", "#fee08b", "#66bd63", "#2ca25f")) +
+  labs(
+    title = "IPSSM classification",
+    y = "Proportion of individuals (%)",
+    x = "Cluster",
+    fill = "IPSSM Category") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+```{r}
+clinical_IPSSM %>%
+  filter(!is.na(IPSSM_col)) %>%
+  group_by(clust, IPSSM_col) %>%
+  summarize(N = n()) %>%
+  group_by(clust) %>%
+  mutate(Freq = N/sum(N)) %>%
+  ggplot(aes(x = clust, y = Freq*100, fill = fct_rev(IPSSM_col))) +
+  geom_bar(stat = "identity") +
+  theme_bw() +
+  scale_fill_manual(values = c("#d73027", "#fee08b", "#66bd63", "#2ca25f")) +
+  labs(
+    title = "IPSSM collapsed classification",
+    y = "Proportion of individuals (%)",
+    x = "Cluster",
+    fill = "IPSSM Category") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+```{r}
+ipssm_MLY_TET2HL_df <-  clinical_IPSSM %>% 
+  subset(clust %in% c("Mild Leukopenic", "High Leukopenic", "TET2 bi", "TET2 mono", "Y-", "del20q")) %>%
+  mutate(cl = ifelse(clust %in% c("Mild Leukopenic", "Y-"), "Low", "Other"))
+ipssm_MLY_TET2HL <- chisq.test(table(ipssm_MLY_TET2HL_df$cl,ipssm_MLY_TET2HL_df$IPSSM_col))
+
+ipssm_TET2HL_Chr_df <-  clinical_IPSSM %>% 
+  subset(clust %in% c("8+", "del7", "High Leukopenic", "TET2 bi", "TET2 mono")) %>%
+  mutate(cl = ifelse(clust %in% c("8+", "del7"), "Chromosomal", "Other"))
+ipssm_TET2HL_Chr <- chisq.test(table(ipssm_TET2HL_Chr_df$cl,ipssm_TET2HL_Chr_df$IPSSM_col))
+```
+
+The sub-clusters have different distribution of IPSSM scores:
+
+Y-, Mild Leukopenic < High Leukopenic, TET2 bi, TET2 mono, del20q (P = `r sprintf("%.1e", ipssm_MLY_TET2HL$p.value, scientific = TRUE)`).
+
+
+High Leukopenic, TET2 bi, TET2 mono, del20q < 8+, del7 (P = `r sprintf("%.1e", ipssm_TET2HL_Chr$p.value, scientific = TRUE)`).
+
+## Survival
+
+
+```{r}
+group_cols <- c("#000000", "#999999", "#E69F00",  
+  "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00"   
+)
+surv_low <- survfit(formula = Surv(OS_YEARS,OS_STATUS) ~ clust, clinical_low) %>%
+    ggsurvplot(data = clinical_low, surv.median.line = "hv",
+               palette = group_cols) +
+  xlab("Time (Years)") +
+  ggtitle("Overall Survival") 
+
+surv_low$plot  +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+os_Ch_TET2bHL_df <- filter(clinical_low, 
+                      clust %in% c("8+", "del7", "del20q", "TET2 bi", "High Leukopenic")) %>%
+  mutate(cl = ifelse(clust %in% c("8+", "del7"), "Chromosomal", "Other"))
+os_Ch_TET2bHL <- summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cl + AGE, os_Ch_TET2bHL_df))
+
+os_TET2bHL_TET2mML_df <- filter(clinical_low, 
+                      clust %in% c("TET2 mono", "Mild Leukopenic", "TET2 bi", "High Leukopenic", "Y-", "del20q")) %>%
+  mutate(cl = ifelse(clust %in% c("TET2 mono", "Mild Leukopenic", "Y-"), "Low", "Other"))
+os_TET2bHL_TET2mML <- summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cl + AGE, os_TET2bHL_TET2mML_df))
+```
+
+The subclusters have different survivals:
+
+8+, del7 < TET2 bi, High Leukopenic, del20q (P = `r sprintf("%.1e", os_Ch_TET2bHL$coefficients[1, 5], scientific = TRUE)`)
+
+TET2 bi, High Leukopenic, del20q < TET2 mono, Mild Leukopenic, Y- (P = `r sprintf("%.1e", os_TET2bHL_TET2mML$coefficients[1, 5], scientific = TRUE)`)
+
+### Survival vs IPSSM
+
+```{r}
+clusts <- levels(clinical_low$clust)
+survs <- lapply(IPSSM_cats, function(cat){
+  df <- filter(clinical_IPSSM, IPSSM_col == cat)
+  n_group <- df %>% 
+    group_by(clust) %>%
+    summarize(n = n())
+  sel_clusts <- as.character(filter(n_group, n >= 10)$clust)
+  df <- filter(df, clust %in% sel_clusts)
+  p <- survfit(formula = Surv(OS_YEARS,OS_STATUS) ~ clust, df) %>%
+    ggsurvplot(data = df, surv.median.line = "hv",
+               palette = group_cols[which(clusts %in% sel_clusts)]) +
+    ggtitle(cat)
+  p$plot
+})
+survs
+```
+
+```{r}
+os_vl_TET2_df <- clinical_IPSSM %>%
+  filter(IPSSM_col == "Very-Low" & clust %in% c("Y-", "Mild Leukopenic", "High Leukopenic", "TET2 bi", "TET2 mono")) %>%
+  mutate(cl = ifelse(clust %in% c("TET2 bi", "TET2 mono"), "A", "B"))
+os_vl_TET2 <- summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cl + AGE, os_vl_TET2_df))
+```
+
+In patients with very-low IPSSM, TET2 bi and TET2 mono have lower survival, though it is not significant (P = `r sprintf("%.1e", os_vl_TET2$coefficients[1, 5], scientific = TRUE)`).
+
+```{r}
+os_l_TET2_df <- clinical_IPSSM %>%
+  filter(IPSSM_col == "Low" & clust %in% c("del20q", "Mild Leukopenic", "High Leukopenic", "TET2 bi", "TET2 mono")) %>%
+  mutate(cl = ifelse(clust %in% c("TET2 mono"), "A", "B"))
+os_l_TET2 <- summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cl + AGE, os_l_TET2_df))
+
+os_l_Y_df <- clinical_IPSSM %>%
+  filter(IPSSM_col == "Low" & clust %in% c("del20q", "Mild Leukopenic", "High Leukopenic", "TET2 bi", "Y-")) %>%
+  mutate(cl = ifelse(clust %in% c("Y-"), "A", "B"))
+os_l_Y <- summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cl + AGE, os_l_Y_df))
+
+
+os_l_TET2_Y_df <- clinical_IPSSM %>%
+  filter(IPSSM_col == "Low" & clust %in% c("TET2 mono", "Y-")) %>%
+  mutate(cl = ifelse(clust %in% c("Y-"), "A", "B"))
+os_l_TET2_Y <- summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cl + AGE, os_l_TET2_Y_df))
+
+```
+
+
+In patients with IPSSM low, TET2 mono patients had the best survival, while Y- the worst. Although the difference in survival between TET2 mono and Y- was statistically significant (P = `r sprintf("%.1e", os_l_TET2_Y$coefficients[1, 5], scientific = TRUE)`), the differenes between TET2 mono and the rest (P = `r sprintf("%.1e", os_l_TET2$coefficients[1, 5], scientific = TRUE)`) or Y- and the rest (P = `r sprintf("%.1e", os_l_Y$coefficients[1, 5], scientific = TRUE)`) were not. 
+
+
+```{r}
+os_m_TET2b8_df <- clinical_IPSSM %>%
+  filter(IPSSM_col == "Moderate" & clust %in% c("8+", "Mild Leukopenic", "High Leukopenic", "TET2 bi", "TET2 mono")) %>%
+  mutate(cl = ifelse(clust %in% c("TET2 bi", "8+"), "A", "B"))
+os_m_TET2b8 <- summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cl + AGE, os_m_TET2b8_df))
+```
+
+In patients with moderate IPSSM, TET2 bi and 8+ have lower survival (P = `r sprintf("%.1e", os_m_TET2b8$coefficients[1, 5], scientific = TRUE)`).
+
+
+```{r}
+os_h_TET2bHL7_df <- clinical_IPSSM %>%
+  filter(IPSSM_col == "High/Very-High" & clust %in% c("8+", "Mild Leukopenic", "High Leukopenic", "TET2 bi", "TET2 mono", "del7")) %>%
+  mutate(cl = ifelse(clust %in% c("TET2 bi", "High Leukopenic", "del7"), "A", "B"))
+os_h_TET2bHL7 <- summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cl + AGE, os_h_TET2bHL7_df))
+```
+
+In patients with high or very-high IPSSM, TET2 bi, high leukopenic and 7- have lower survival (P = `r sprintf("%.1e", os_h_TET2bHL7$coefficients[1, 5], scientific = TRUE)`).
+
+### Survival vs IPSSM per cluster
+
+
+```{r}
+main_clusts <- c("High Leukopenic", "Mild Leukopenic", "TET2 mono", "TET2 bi")
+names(main_clusts) <- main_clusts
+ipssm_cols <- c("#E0F3DB", "#A8DDB5", "#43A2CA","#0868AC")
+
+survs2 <- lapply(main_clusts, function(cl){
+  df <- filter(clinical_IPSSM, clust == cl)
+  p <- survfit(formula = Surv(OS_YEARS,OS_STATUS) ~ IPSSM_col, df) %>%
+    ggsurvplot(data = df, surv.median.line = "hv",
+               palette = ipssm_cols) +
+    ggtitle(cl)
+  p$plot
+})
+survs2
+```
+
+```{r}
+clinical_all_IPSSM <- mutate(clinical, 
+                         IPSSM_col = ifelse(IPSSM %in% c("High", "Very-High"), "High/Very-High", 
+                                            ifelse(grepl("Moderate", IPSSM), "Moderate",
+                                                     ifelse(IPSSM == "Low", "Low", "Very-Low"))),
+                         IPSSM_col = factor(IPSSM_col, levels = c("Very-Low", "Low", "Moderate", "High/Very-High")))
+```
+
+```{r}
+computeIPSSM_HRs <- function(df){
+  
+  inds <- seq_len(length(IPSSM_cats) - 1)
+  HRs <- lapply(inds, function(i){
+    
+    cats <- IPSSM_cats[c(i, i+1)]
+    
+    tmp <- subset(df, IPSSM_col %in% cats) %>%
+      mutate(IPSSM_col = droplevels(IPSSM_col))
+    
+    mod <- summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ IPSSM_col + AGE, tmp))
+    out <- mod$conf.int[1, -2]
+    out
+  })
+  res <- Reduce(rbind, HRs) %>%
+    as_tibble() %>%
+    mutate(Comparison = c("Very-Low vs Low", "Low vs Moderate", "Moderate vs High/Very-High"))
+  colnames(res) <- c("HR", "L_95", "H_95", "Comparison")
+  res
+}
+
+clust_hrs <- lapply(main_clusts, function(cl){
+  
+  tab <- computeIPSSM_HRs(filter(clinical_IPSSM, clust == cl)) %>%
+    mutate(Cluster = cl)
+  tab
+}) %>%
+  Reduce(f = rbind)
+
+all_hrs <- rbind(clust_hrs, 
+        computeIPSSM_HRs(clinical_IPSSM) %>%
+          mutate(Cluster = "Low Blasts"),
+        computeIPSSM_HRs(clinical_all_IPSSM) %>%
+          mutate(Cluster = "IPSS-Mol cohort")) %>%
+  mutate(Comparison = factor(Comparison, levels = c("Very-Low vs Low", "Low vs Moderate", "Moderate vs High/Very-High")),
+         Cluster = factor(Cluster, levels = c(main_clusts, "Low Blasts", "IPSS-Mol cohort")))
+
+```
+
+```{r}
+ggplot(all_hrs, aes(x = Cluster, y = HR, fill = Cluster)) +
+  geom_bar(stat = "identity", position = "dodge", color = "black") +
+  geom_errorbar(aes(ymin = L_95, ymax = H_95), width = 0.2) +
+  theme_bw() +
+  facet_grid(~ Comparison) +
+  scale_y_log10() +
+  scale_fill_manual(values = c(group_cols[1:4], "white", "purple")) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
+
+```
+# Mutations
+
+## Survival vs mutations
+
+```{r}
+muts_df <- clinical_low %>%
+  mutate(ASXL1 = ifelse(ASXL1 == 1, "mutated", "WT"),
+         SRSF2 = ifelse(SRSF2 == 1, "mutated", "WT"),
+         cl = ifelse(clust == "TET2 bi", "1.TET2 bi", "2.Other")) 
+
+```
+
+
+
+```{r}
+survfit(formula = Surv(OS_YEARS,OS_STATUS) ~ ASXL1, muts_df) %>%
+    ggsurvplot_facet(data = muts_df, surv.median.line = "hv", 
+              facet.by = "cl")
+```
+```{r}
+summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cl*ASXL1 + AGE, muts_df))
+```
+
+
+```{r}
+survfit(formula = Surv(OS_YEARS,OS_STATUS) ~ SRSF2, muts_df) %>%
+    ggsurvplot_facet(data = muts_df, surv.median.line = "hv", 
+              facet.by = "cl")
+```
+
+
+```{r}
+summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cl*SRSF2  + AGE, muts_df))
+```
+
+```{r}
+summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cl*ASXL1 + AGE, muts_df, subset = clust %in% main_clusts))
+summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cl*ASXL1 + AGE, muts_df))
+```
+
+```{r}
+summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cl*RUNX1 + AGE, muts_df))
+```
+
+```{r}
+summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cl*EZH2 + AGE, muts_df, subset = clust %in% main_clusts))
+summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cl*EZH2 + AGE, muts_df))
+```
+
+
+```{r}
+TET2bi <- subset(clinical_low, clust == "TET2 bi")
+summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ AGE  + BM_BLAST + logPLT + HB + ASXL1 + RUNX1 + SRSF2, TET2bi))
+
+TET2bi_no <- subset(clinical_low, clust != "TET2 bi")
+summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ AGE  + BM_BLAST + logPLT + HB + ASXL1 + RUNX1 + SRSF2, TET2bi_no))
+
+
+summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ AGE  + BM_BLAST + log(PLT) + HB + ASXL1 + RUNX1 + SRSF2, clinical))
+```
+
+
+
+## Co-mutations
+
+### ASXL1 vs RUNX1
+
+```{r}
+table(clinical_low$ASXL1, clinical_low$RUNX1)
+fisher.test(table(clinical_low$ASXL1, clinical_low$RUNX1))
+lapply(main_clusts, function(x){
+  tmp <- subset(clinical_low, clust == x)
+  list(tab =  table(tmp$ASXL1, tmp$RUNX1),
+       test = fisher.test(table(tmp$ASXL1, tmp$RUNX1)))
+})
+```
+
+### SRSF2 vs RUNX1
+
+```{r}
+table(clinical_low$SRSF2, clinical_low$RUNX1)
+fisher.test(table(clinical_low$SRSF2, clinical_low$RUNX1))
+lapply(main_clusts, function(x){
+  tmp <- subset(clinical_low, clust == x)
+  list(tab =  table(tmp$SRSF2, tmp$RUNX1),
+       test = fisher.test(table(tmp$SRSF2, tmp$RUNX1)))
+})
+```
+### ASXL1 vs DNMT3A
+
+```{r}
+table(clinical_low$ASXL1, clinical_low$DNMT3A)
+fisher.test(table(clinical_low$ASXL1, clinical_low$DNMT3A))
+lapply(main_clusts, function(x){
+  tmp <- subset(clinical_low, clust == x)
+  list(tab =  table(tmp$ASXL1, tmp$DNMT3A),
+       test = fisher.test(table(tmp$ASXL1, tmp$DNMT3A)))
+})
+```
+
+### ASXL1 vs SRSF2
+
+
+```{r}
+table(clinical_low$ASXL1, clinical_low$SRSF2)
+fisher.test(table(clinical_low$ASXL1, clinical_low$SRSF2))
+lapply(main_clusts, function(x){
+  tmp <- subset(clinical_low, clust == x)
+  list(tab =  table(tmp$ASXL1, tmp$SRSF2),
+       test = fisher.test(table(tmp$ASXL1, tmp$SRSF2)))
+})
+```
+

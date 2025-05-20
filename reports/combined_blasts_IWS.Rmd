@@ -1,0 +1,1254 @@
+---
+title: "Clustering blasts patients"
+author: "Carlos Ruiz"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::downcute:
+    toc_depth: 3
+    downcute_theme: "default"
+    lightbox: true
+    thumbnails: true
+    gallery: true
+    use_bookdown: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## Preparación
+
+```{r}
+library(MASS)
+library(cluster)
+library(rpart)
+library(ca)
+library(cowplot)
+library(pheatmap)
+library(survminer)
+library(survival)
+library(tidyverse)
+```
+
+```{r}
+load("../results/preprocess/clinical_preproc.Rdata")
+load("../results/clustering/combined_pc_clustering_raw.Rdata")
+```
+
+```{r}
+clinical_blasts <- clinical %>%
+    mutate(logPLT = log(PLT)) %>% 
+    filter(consensus %in% c("Low blasts", "MDS-IB1", "MDS-IB2")) %>%
+    filter(!WHO_2016 %in% c("aCML", "CMML", "MDS/MPN-RS-T", "MDS/MPN-U")) %>%
+    filter(SF3B1 == 0 & del5q == 0) %>% ## Remove SF3B1 and del5q
+    mutate(clust = ifelse(delY == 1, "Y-",
+        ifelse(del7 == 1, "7-",
+            ifelse(del20q == 1, "del20q",
+                ifelse(plus8 == 1, "8+", 
+                    ifelse(DNMT3A == 1, "DNMT3A",
+                        ifelse(STAG2 == 1, "STAG2",
+                            ifelse(TET2bi == 1, "TET2 bi-allelic",
+                                ifelse(TET2other == 1, "TET2 monoallelic",
+                                    ifelse(WBC > 6, "Midly Leukopenic",                 
+                                           "Highly Leukopenic"))))))))),
+        clust = factor(clust, levels = c("Highly Leukopenic", "Midly Leukopenic", "TET2 monoallelic", "TET2 bi-allelic", "Y-", "8+", "7-", "del20q", "DNMT3A", "STAG2"))
+) %>%
+  filter(!is.na(clust))
+
+```
+
+
+
+## Clustering
+
+Se hizo un clustering en los pacientes clasificados como low blasts según la clasificación consenso. Se eliminaron los pacientes identificados como CMML o MDS/MPN en la clasificación de la OMS 2016. 
+
+La definición de los sub-grupos se realizó siguiendo los siguientes pasos:
+
+1.  Reducción de la dimensionalidad por tipo de dato
+2.  Reducción de la dimensionalidad conjunta
+3.  Definición de clusters con K-means
+4.  Refinamiento a través de la clasificación
+
+### Reducción de la dimensionalidad por tipo de dato
+
+Se redujo la dimensionalidad de los datos de manera independiente para los datos clínicos, de kariotipo y de mutaciones.
+
+Datos clínicos: se aplicó un PCA (Principal Component Analysis). Previamente, se aplicó un log a los valores de plaquetas y todos los valores se escalaron.
+
+Kariotipo: los datos de kariotipo están definidos como variables binarias (0 ausente, 1 presente). En este caso, se aplicó CA (Correspondance Analysis), una técnica con el mismo objetivo pero más adecuada para este tipo de variable. Previamente, se filtraron las `r nrow(kar_pca$colcoord)` aberraciones kariotípicas con una frecuencia \<1% en los blasts.
+
+Mutaciones: los datos de mutaciones también están definidos como variables binarias, por lo que también se aplicó CA (Correspondance Analysis). Previamente, se filtraron las `r nrow(mut_pca$colcoord)` mutaciones con una frecuencia \<5% en los low blasts.
+
+### Reducción de la dimensionalidad conjunta
+
+Para hacer un clustering conjunto, seleccionamos los componentes que explican alrededor de un 80% de la variabilidad en cada tipo de dato. Así, cogimos 4 PCs de las variables clínicas, 3 PCs de los kariotipos y 5 PCs de las mutaciones.
+
+Combinamos estos PCs en una matriz y volvimos a correr un PCA. Este PCA nos da componentes que recogen información de los datos clínicos, kariotipos y mutaciones.
+
+### Definición de clusters con K-means
+
+A continuación, definimos los clusters con k-means. Para definir el número de clusters, maximizamos el criterio de silhouette. Silhouette es una medida que nos dice, para cada muestra, como de bien clusterizada está. El mejor valor fueron 8 clusters.
+
+```{r}
+data.frame(N_clusters = 2:20, Score = sil_scores) %>%
+  mutate(color = ifelse(N_clusters == 10, "rest", "selected")) %>%
+  ggplot(aes(x = N_clusters, y = Score)) +
+  geom_point(aes(color = color)) +
+  geom_line() +
+  scale_color_manual(values = c("red", "black")) +
+  xlab("Number of clusters") +
+  ylab("Silhouette Score") +
+  theme_bw() +
+  theme(legend.position = "none") 
+```
+Hay que destacar dos elementos fundamentales que refuerzan la validez del clustering. 
+
+En primer lugar, y a pesar de usar k-means como método de clustering, los nuevos clusters que aparecen representan divisiones de los clusters anteriores. Así, cuando el número de clusters es 4, obtenemos los 4 clusters principales (High leukopenic, mild leukopenic, TET2 mono-alélico y TET2 bi-alélico). Si vamos incrementando el número de clusters hasta 8, momento donde hay un punto de inflexión en la curva del silhouette score, vamos encontrando los clusters correspondientes a los eventos kariotípicos (Y-, del20q, 7- y 8+). 
+
+### Refinamiento a través de la clasificación
+
+Finalmente, refinamos la definición de los clusters basándonos en un clasificador en árbol. En este paso, lo que hicimos es definir un árbol para clasificar los pacientes y coger la clasificación que da el árbol como la clasificación buena. Repetimos este proceso varias veces hasta que convergió.
+
+En resumen, con este proceso definimos 10 clusters que se caracterizan por lo siguiente:
+
+-   Baja proporción de células blancas (Highly Leukopenic)
+-   Alta proporción de células blancas (Mildly Leukopenic)
+-   TET2 bialélico (TET2 bi-allelic)
+-   TET2 monoalélico (TET2 mono-allelic)
+-   Y- 
+-   del20q
+-   8+
+-   7-
+-   STAG2
+-   DNMT3A
+
+```{r}
+table(clinical_blasts$clust)
+```
+
+
+
+## Exploración de los datos
+
+PCA de los datos clínicos
+
+```{r}
+colors <- c("black", "grey", "red", "orange", "yellow", "green", "cyan", "blue", "magenta", "brown")
+group_cols <- colors
+
+scale <-   scale_color_manual(values = colors) 
+scale_fill <-   scale_fill_manual(values = colors) 
+p1 <- ggplot(df_clin, aes(x = PC1, y = PC2, col = clust)) +
+        geom_point() +
+        xlab("PC1 (40.0%)") +
+        ylab("PC2 (17.0%)") +
+        scale + 
+        theme_bw()
+p2 <- ggplot(df_clin, aes(x = PC3, y = PC4, col = clust)) +
+        geom_point() +
+        xlab("PC3 (16.5%)") +
+        scale + 
+        ylab("PC4 (10.3%)") +
+        theme_bw()
+plot_grid(p1, p2, ncol = 2)
+```
+```{r}
+p1 <- ggplot(df_clin, aes(x = PC1, y = PC2, col = dataset)) +
+        geom_point() +
+        xlab("PC1 (40.0%)") +
+        ylab("PC2 (17.0%)") +
+        theme_bw()
+p2 <- ggplot(df_clin, aes(x = PC3, y = PC4, col = dataset)) +
+        geom_point() +
+        xlab("PC3 (16.5%)") +
+        ylab("PC4 (10.3%)") +
+        theme_bw()
+plot_grid(p1, p2, ncol = 2)
+
+```
+
+CA de los kariotipos
+
+```{r}
+p1 <- ggplot(df_kar, aes(x = Dim1, y = Dim2, col = clust)) +
+        geom_jitter(width = 0.2, height = 0.2) +
+        xlab("CA1 (22.3%)") +
+        ylab("CA2 (20.4%)") +
+        scale + 
+        theme_bw()
+p2 <- ggplot(df_kar, aes(x = Dim3, y = Dim4, col = clust)) +
+        geom_jitter(width = 0.2, height = 0.2) +
+        xlab("CA3 (19.0%)") +
+        scale + 
+        ylab("CA4 (14.5%)") +
+        theme_bw()
+plot_grid(p1, p2, ncol = 2)
+```
+```{r}
+p1 <- ggplot(df_kar, aes(x = Dim1, y = Dim2, col = dataset)) +
+        geom_jitter(width = 0.2, height = 0.2) +
+        xlab("CA1 (22.3%)") +
+        ylab("CA2 (20.4%)") +
+        theme_bw()
+p2 <- ggplot(df_kar, aes(x = Dim3, y = Dim4, col = dataset)) +
+        geom_jitter(width = 0.2, height = 0.2) +
+        xlab("CA3 (19.0%)") +
+        ylab("CA4 (14.5%)") +
+        theme_bw()
+plot_grid(p1, p2, ncol = 2)
+```
+
+CA de las mutaciones
+
+```{r}
+p1 <- ggplot(df_mut, aes(x = Dim1, y = Dim2, col = clust)) +
+        geom_jitter(width = 0.2, height = 0.2) +
+        xlab("CA1 (14.5%)") +
+        ylab("CA2 (12.4%)") +
+        scale + 
+        theme_bw()
+p2 <- ggplot(df_mut, aes(x = Dim3, y = Dim4, col = clust)) +
+        geom_jitter(width = 0.2, height = 0.2) +
+        xlab("CA3 (11.4%)") +
+        scale + 
+        ylab("CA4 (10.1%)") +
+        theme_bw()
+plot_grid(p1, p2, ncol = 2)
+```
+```{r}
+p1 <- ggplot(df_mut, aes(x = Dim1, y = Dim2, col = dataset)) +
+        geom_jitter(width = 0.2, height = 0.2) +
+        xlab("CA1 (14.5%)") +
+        ylab("CA2 (12.4%)") +
+        theme_bw()
+p2 <- ggplot(df_mut, aes(x = Dim3, y = Dim4, col = dataset)) +
+        geom_jitter(width = 0.2, height = 0.2) +
+        xlab("CA3 (11.4%)") +
+        ylab("CA4 (10.1%)") +
+        theme_bw()
+plot_grid(p1, p2, ncol = 2)
+```
+
+PCA combinado
+
+```{r}
+p1 <- ggplot(df_comb, aes(x = PC1, y = PC2, col = clust)) +
+        geom_point() +
+        xlab("PC1 (13.8%)") +
+        ylab("PC2 (8.1%)") +
+        scale + 
+        theme_bw()
+p2 <- ggplot(df_comb, aes(x = PC3, y = PC4, col = clust)) +
+        geom_point() +
+        xlab("PC3 (7.7%)") +
+        scale + 
+        ylab("PC4 (7.4%)") +
+        theme_bw()
+plot_grid(p1, p2, ncol = 2)
+```
+```{r}
+p1 <- ggplot(df_comb, aes(x = PC1, y = PC2, col = dataset)) +
+        geom_point() +
+        xlab("PC1 (13.8%)") +
+        ylab("PC2 (8.1%)") +
+        theme_bw()
+p2 <- ggplot(df_comb, aes(x = PC3, y = PC4, col = dataset)) +
+        geom_point() +
+        xlab("PC3 (7.7%)") +
+        ylab("PC4 (7.4%)") +
+        theme_bw()
+plot_grid(p1, p2, ncol = 2)
+```
+
+## Correlación con variables usadas en el clustering
+
+### Variables clínicas
+
+```{r}
+clin_vars <- c("BM_BLAST", "PB_BLAST", "WBC", "ANC", "MONOCYTES", "HB", "logPLT")
+names(clin_vars) <- clin_vars
+```
+
+Check for overdispersion
+
+```{r}
+vmrs <- sapply(clin_vars[clin_vars != "logPLT"] , function(clin){
+ 
+  model <- glm.nb(formula(paste(clin, " ~ clust")), 
+              clinical_blasts)
+  observed_variance <- var(clinical_blasts[[clin]], na.rm = TRUE)
+  observed_mean <- mean(clinical_blasts[[clin]], na.rm = TRUE)
+  vmr <- observed_variance / observed_mean
+})
+vmrs
+```
+
+```{r}
+low_clin_plots <- lapply(clin_vars, function(var){
+    ggplot(clinical_blasts, aes(x = .data[[var]])) +
+        geom_histogram() +
+        facet_grid(clust ~ .) +
+        theme_bw()
+})
+```
+
+```{r, fig.width=6, fig.height=10}
+plot_grid(plotlist = low_clin_plots[1:3], nrow = 1)
+plot_grid(plotlist = low_clin_plots[4:6], nrow = 1)
+plot_grid(plotlist = low_clin_plots[7], nrow = 1)
+```
+
+```{r, fig.height=10, fig.width=10}
+clinical_blasts %>%
+    select(all_of(clin_vars), clust) %>%
+    pivot_longer(cols = !clust, names_to = "Cell", values_to = "value") %>%
+  mutate(Cell = factor(Cell, levels = clin_vars)) %>%
+  ggplot(aes(x = value, color = clust)) +
+  geom_density() +
+  scale +
+  facet_wrap(~ Cell, scale = "free") +
+  theme_bw()
+```
+
+```{r}
+clinical_blasts %>%
+    select(ANC, BM_BLAST, PB_BLAST, WBC, ANC, MONOCYTES, clust) %>%
+    pivot_longer(cols = !clust, names_to = "Cell", values_to = "value") %>%
+    mutate(category = cut(value, breaks = c(-0.1, 1, 2, 3, 4, 5, 10, 20), 
+                            labels = c("0", "1", "2", "3", "4", "5-10", "10+"))) %>%
+    group_by(Cell, category, clust) %>%
+    summarize(n_cat = n()) %>%
+    group_by(Cell, clust) %>%
+    mutate(prop = n_cat/sum(n_cat)) %>%
+  ggplot(aes(x = clust, y = prop, fill = category)) +
+    geom_bar(stat = "identity") +
+    facet_wrap(~ Cell) +
+    ylab("Proportion") +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
+
+```
+
+```{r}
+clinical_blasts %>%
+    select(HB, logPLT, clust) %>%
+    pivot_longer(cols = !clust, names_to = "Cell", values_to = "value") %>%
+    ggplot(aes(y = value, x = clust)) + 
+    geom_violin() +
+    facet_wrap(~Cell, scales = "free_y") +
+    theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+```
+
+Variables with poisson distribution
+
+```{r}
+clusters <- levels(clinical_blasts$clust)
+poisson <- c("BM_BLAST", "WBC", "ANC", "MONOCYTES")
+names(poisson) <- c("BM_BLAST", "WBC", "ANC", "MONOCYTES")
+res <- lapply(poisson, function(var){
+    cell_test <- lapply(seq_len(length(clusters) - 1), function(i){
+      cl <- clusters[i]
+     tmp <- mutate(clinical_blasts, cluster = relevel(clust, cl))
+     poiss_lm <- summary(glm(formula (paste(var, " ~ cluster")), tmp, 
+                      family = "poisson"))
+     coefs <- poiss_lm$coefficients[-1, ]
+     coef_df <- as_tibble(coefs[, c(1, 4)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              HR = exp(Estimate))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+  out <- mutate(cell_test, 
+                Cell = var) %>%
+    filter(HR > 1 & !Comp_clust %in% c("AGE", "SEXM")   ) %>%
+    arrange(P_value)
+  out
+})
+res
+
+```
+
+Variables with negative binomial distribution
+
+```{r}
+pb_res <- lapply(seq_len(length(clusters) - 1), function(i){
+      cl <- clusters[i]
+     tmp <- mutate(clinical_blasts, cluster = relevel(clust, cl))
+     nb_lm <- summary(glm.nb(PB_BLAST ~ cluster, tmp))
+     coefs <- nb_lm$coefficients[-1, ]
+     coef_df <- as_tibble(coefs[, c(1, 4)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              HR = exp(Estimate))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+mutate(pb_res, Cell = "PB_BLAST") %>%
+    filter(HR > 1) %>%
+    arrange(P_value)
+```
+
+Variables modeled with a normal
+
+```{r}
+normal <- c("HB", "logPLT")
+names(normal) <- normal
+norm_res <- lapply(normal, function(var){
+    cell_test <- lapply(seq_len(length(clusters) - 1), function(i){
+      cl <- clusters[i]
+     tmp <- mutate(clinical_blasts, cluster = relevel(clust, cl))
+     lm <- summary(lm(formula (paste(var, " ~ cluster ")), tmp))
+     coefs <- lm$coefficients[-1, ]
+     coef_df <- as_tibble(coefs[, c(1, 4)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              Beta = Estimate)
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, Beta, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+  out <- mutate(cell_test, 
+                Cell = var) %>%
+    filter(Beta > 0 & !Comp_clust %in% c("AGE", "SEXM")   ) %>%
+    arrange(P_value)
+  out
+})
+norm_res
+
+```
+
+Se ven numerosas diferencias entre los clusters en las variables clínicas. 
+
+### Kariotipos
+
+```{r}
+clinical_blasts$complex <- factor(clinical_blasts$complex, levels = c("non-complex", "complex"))
+kar_events <- c("delY", "del11q", "del20q", "del7q",  "plus8",  "del7")
+kar_events <- c(kar_events, "complex")
+names(kar_events) <- kar_events
+kar_tabs <- lapply(kar_events, function(x) table(clinical_blasts[[x]], clinical_blasts$clust))
+kar_tabs_lowblasts <- sapply(kar_tabs, function(x) prop.table(x, margin = 2)[2, ])*100
+pheatmap(mat = kar_tabs_lowblasts, display_numbers = TRUE)
+
+
+```
+
+### Mutaciones
+
+```{r}
+mutations <- read_tsv("../data/IPSSMol/df_mut.tsv")
+mut_vars <- colnames(mutations)[colnames(mutations) != "ID"]
+
+mut_vars <- mut_vars[mut_vars %in% colnames(clinical_blasts)]
+sel_muts <- mut_vars[colSums(clinical_blasts[, mut_vars]) > 30]
+names(sel_muts) <- sel_muts
+mut_tabs <- lapply(sel_muts, function(x) table(clinical_blasts[[x]], clinical_blasts$clust))
+
+mut_tabs_lowblasts <- sapply(mut_tabs, function(x) prop.table(x, margin = 2)[2, ])*100
+pheatmap(mat = mut_tabs_lowblasts, display_numbers = TRUE)
+```
+
+```{r}
+mut_res <- lapply(sel_muts[-grep("TET2*", sel_muts)], function(mut){
+    cell_test <- lapply(seq_len(length(clusters) - 1), function(i){
+      cl <- clusters[i]
+     tmp <- mutate(clinical_blasts, cluster = relevel(clust, cl))
+     mut_binom <- summary(glm(formula (paste(mut, " ~ cluster")), tmp, 
+                      family = "binomial"))
+     coefs <- mut_binom$coefficients[-1, ]
+     coef_df <- as_tibble(coefs[, c(1, 4)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              HR = exp(Estimate))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+  out <- mutate(cell_test, 
+                Mutation = mut) %>%
+    filter(HR > 1 & !Comp_clust %in% c("AGE", "SEXM")   ) %>%
+    arrange(P_value)
+  out
+})
+mut_res
+```
+
+## Correlación con variables externas
+
+### Edad
+
+```{r}
+ggplot(clinical_blasts, aes(x = AGE)) +
+        geom_histogram() +
+        facet_grid(clust ~ .) +
+        theme_bw()
+```
+
+```{r}
+clinical_blasts %>%
+  ggplot(aes(x = AGE, color = clust)) +
+  geom_density() +
+  scale +
+  theme_bw()
+```
+
+
+```{r}
+clinical_blasts %>%
+    ggplot(aes(y = AGE, x = clust)) + 
+    geom_violin() +
+    theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+```
+
+```{r}
+age_test <- lapply(clusters, function(cl){
+     tmp <- mutate(clinical_blasts, cluster = relevel(clust, cl))
+     lm <- summary(lm(AGE ~ cluster, tmp))
+     coefs <- lm$coefficients[-1, ]
+     coef_df <- as_tibble(coefs[, c(1, 4)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              Beta = Estimate)
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, Beta, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+age_test %>%
+    filter(P_value < 0.05 & Beta > 0 & !Comp_clust %in% "SEXM"   ) %>%
+    arrange(P_value)
+
+```
+
+
+### Sexo
+
+```{r}
+sex_prop <- prop.table(table(clinical_blasts$clust, clinical_blasts$SEX), margin = 1)
+sex_prop_df <- tibble(cluster = rownames(sex_prop), propF = sex_prop[, 1])
+chisq.test(table(clinical_blasts$clust, clinical_blasts$SEX))
+```
+
+```{r}
+ggplot(sex_prop_df, aes(y = propF*100, x = cluster)) +
+        geom_bar(stat = "identity") +
+        theme_bw() +
+        geom_hline(yintercept = mean(clinical_blasts$SEX == "F")*100,
+            linetype = "dashed") +
+            ylab("Proportion of Females") 
+
+```
+
+```{r}
+sex_test <- lapply(clusters[clusters != "Y-"], function(cl){
+     tmp <- mutate(clinical_blasts, cluster = relevel(clust, cl)) %>%
+       filter(cluster != "Y-") %>%
+       mutate(cluster = droplevels(cluster),
+              SEX = ifelse(SEX == "M", 1, 0))
+     binom <- summary(glm(SEX ~ cluster , tmp, family = "binomial"))
+     coefs <- binom$coefficients[-1, ]
+     coef_df <- as_tibble(coefs[, c(1, 4)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              HR = exp(Estimate))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+sex_test %>%
+    filter(P_value < 0.05 & HR > 1 & !Comp_clust %in% "AGE"   ) %>%
+    arrange(P_value)
+
+```
+Hay más mujeres en los TET2 bi que en los leukopenic.
+
+### Consensus
+
+```{r}
+table(clinical_blasts$clust, clinical_blasts$consensus) %>%
+    as.matrix() %>%
+    pheatmap(display_numbers = TRUE, cluster_cols = FALSE)
+```
+```{r}
+c_tab <- proportions(table(clinical_blasts$clust, clinical_blasts$consensus),
+           margin = 1) %>%
+    as.matrix()
+pheatmap(c_tab * 100, display_numbers = TRUE, cluster_cols = FALSE)
+```
+### IPSSM
+
+
+```{r}
+table(clinical_blasts$clust, clinical_blasts$IPSSM) %>%
+    as.matrix() %>%
+    pheatmap(display_numbers = TRUE, cluster_cols = FALSE)
+```
+
+Número de individuos por grupo IPSSM
+
+```{r}
+clist_ipssm_mat_prop <- prop.table(table(clinical_blasts$clust, clinical_blasts$IPSSM), margin = 1) %>%
+    as.matrix()*100 
+pheatmap(clist_ipssm_mat_prop, display_numbers = TRUE, cluster_cols = FALSE)
+```
+```{r}
+clinical_blasts %>%
+  filter(!is.na(IPSSM)) %>%
+  group_by(clust, IPSSM) %>%
+  summarize(N = n()) %>%
+  group_by(clust) %>%
+  mutate(Freq = N/sum(N)) %>%
+  ggplot(aes(x = clust, y = Freq*100, fill = fct_rev(IPSSM))) +
+  geom_bar(stat = "identity") +
+  theme_bw() +
+  scale_fill_manual(values = c("#d73027", "#f46d43", "#fdae61", "#fee08b", "#66bd63", "#2ca25f")) +
+  labs(
+    title = "IPSSM classification",
+    y = "Individuals (%)",
+    x = "Prognostic group",
+    fill = "IPSSM Category") +
+  theme(plot.title = element_text(hjust = 0.5),
+        text = element_text(size = 16),
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) 
+```
+
+
+
+### Supervivencia
+
+
+```{r}
+surv_low <- survfit(formula = Surv(OS_YEARS,OS_STATUS) ~ clust, clinical_blasts) %>%
+    ggsurvplot(data = clinical_blasts, surv.median.line = "hv", 
+               palette = group_cols)
+
+surv_low$plot
+```
+
+
+```{r}
+clusts <- levels(clinical_blasts$clust)
+os_test <- lapply(clusts, function(cl){
+     tmp <- mutate(clinical_blasts, cluster = relevel(clust, cl))
+     os <- summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cluster + AGE, tmp))
+     coefs <- os$coefficients
+     coef_df <- as_tibble(coefs[, c(1, 5)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              HR = exp(coef))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+os_test %>%
+    filter(HR > 1 & Comp_clust %in% clusts   ) %>%
+    arrange(P_value)
+
+```
+
+
+
+### Transición a AML
+
+```{r}
+aml_low <- survfit(formula = Surv(AMLt_YEARS,AMLt_STATUS) ~ clust, clinical_blasts) %>%
+    ggsurvplot(data = clinical_blasts, surv.median.line = "hv", 
+               palette = group_cols)
+aml_low$plot
+```
+
+```{r}
+aml_test <- lapply(clusts, function(cl){
+     tmp <- mutate(clinical_blasts, cluster = relevel(clust, cl))
+     aml <- summary(coxph(Surv(AMLt_YEARS, AMLt_STATUS) ~ cluster + AGE  , tmp))
+     coefs <- aml$coefficients
+     coef_df <- as_tibble(coefs[, c(1, 5)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              HR = exp(coef))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+aml_test %>%
+    filter(HR > 1 & Comp_clust %in% clusts) %>%
+    arrange(P_value)
+
+```
+
+## Interacción entre variables
+
+
+### IPSSM vs supervivencia
+
+```{r}
+IPSSM_groups <- levels(clinical_blasts$IPSSM)
+names(IPSSM_groups) <- IPSSM_groups
+clusts <- levels(clinical_blasts$clust)
+
+survs <- lapply(IPSSM_groups, function(cat){
+  df <- filter(clinical_blasts, IPSSM == cat)
+  n_group <- df %>% 
+    group_by(clust) %>%
+    summarize(n = n())
+  sel_clusts <- as.character(filter(n_group, n >= 10)$clust)
+  df <- filter(df, clust %in% sel_clusts)
+  p <- survfit(formula = Surv(OS_YEARS,OS_STATUS) ~ clust, df) %>%
+    ggsurvplot(data = df, surv.median.line = "hv",
+               palette = group_cols[which(clusts %in% sel_clusts)],
+               risk.table = TRUE, break.time.by = 2) +
+    ggtitle(paste("IPSSM:", cat))  +
+    xlab("Time (Years)")
+  p
+})
+survs
+```
+
+
+```{r}
+os_ipssm_res <- lapply(IPSSM_groups, function(cat){
+    df <-subset(clinical_blasts, IPSSM == cat)
+    n_group <- df %>% 
+      group_by(clust) %>%
+      summarize(n = n())
+    sel_clusts <- as.character(filter(n_group, n >= 10)$clust)
+    
+    ipssm_test <- lapply(sel_clusts, function(cl){
+    tmp <- subset(clinical_blasts, IPSSM == cat) %>%
+      mutate(cluster = relevel(clust, cl))
+    os <- summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cluster + AGE, tmp))
+     coefs <- os$coefficients
+     coef_df <- as_tibble(coefs[, c(1, 5)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              HR = exp(coef))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+  out <- mutate(ipssm_test, 
+                IPSSM_cat = cat) %>%
+    filter(HR > 1 & Comp_clust %in% clusts) %>%
+    arrange(P_value)
+  out
+})
+os_ipssm_res
+```
+
+
+### Sub-tipos vs supervivenica
+
+
+```{r}
+ipssm_cols <-  c("#f46d43", "#66bd63", "#fdae61", "#fee08b", "#d73027", "#2ca25f")
+  
+survfit(formula = Surv(OS_YEARS,OS_STATUS) ~ IPSSM, clinical_blasts) %>%
+    ggsurvplot(data = clinical_blasts, surv.median.line = "hv", 
+               palette = ipssm_cols, facet.by = "clust")
+```
+
+```{r}
+os_cl_res <- lapply(clusts, function(cl){
+  
+    df <-subset(clinical_blasts, clust == cl)
+    n_group <- df %>% 
+      group_by(IPSSM) %>%
+      summarize(n = n())
+    sel_ipssm <- as.character(filter(n_group, n >= 10)$IPSSM)
+   
+  
+    ipssm_test <- lapply(sel_ipssm, function(cat){
+    tmp <- subset(clinical_blasts, clust == cl) %>%
+      mutate(IPSSM_sel = relevel(IPSSM, cat))
+    os <- summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ IPSSM_sel + AGE, tmp))
+     coefs <- os$coefficients
+     coef_df <- as_tibble(coefs[, c(1, 5)]) %>%
+       mutate(Ref_cluster = cat, 
+              Comp_clust = gsub("IPSSM_sel", "", rownames(coefs)),
+              HR = exp(coef))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+  out <- mutate(ipssm_test, 
+                Clust = cl) %>%
+    filter(HR > 1 & Comp_clust %in% IPSSM_groups) %>%
+    arrange(P_value)
+  out
+})
+os_cl_res
+```
+
+### IPSSM vs transición a AML
+
+
+```{r}
+survfit(formula = Surv(AMLt_YEARS,AMLt_STATUS) ~ clust, clinical_blasts) %>%
+    ggsurvplot(data = clinical_blasts, surv.median.line = "hv", 
+               palette = group_cols, facet.by = "IPSSM")
+
+
+```
+
+```{r}
+aml_ipssm_res <- lapply(IPSSM_groups, function(cat){
+    ipssm_test <- lapply(clusts, function(cl){
+    tmp <- subset(clinical_blasts, IPSSM == cat) %>%
+      mutate(cluster = relevel(clust, cl))
+    os <- summary(coxph(Surv(AMLt_YEARS,AMLt_STATUS) ~ cluster + AGE, tmp))
+     coefs <- os$coefficients
+     coef_df <- as_tibble(coefs[, c(1, 5)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              HR = exp(coef))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+  out <- mutate(ipssm_test, 
+                IPSSM_cat = cat) %>%
+    filter(HR > 1 & Comp_clust %in% clusts) %>%
+    arrange(P_value)
+  out
+})
+aml_ipssm_res
+```
+
+### HMA treatment vs survival
+
+Los análisis de tratamiento están hechos con los IPSSM Moderate-High, High y Very-High, para maximizar el número de pacientes con tratamiento.
+
+```{r}
+main_treat <- filter(clinical_blasts, IPSSM %in% c("Moderate-High", "High", "Very-High") & clust != "Y-") %>%
+  mutate(IPSSM = droplevels(IPSSM),
+         clust = droplevels(clust),
+         HMA = ifelse(hma == 0, "untreated", "hma"),
+         HMA = factor(HMA, levels = c("untreated", "hma")),
+         TRANSPLANT = ifelse(transplant == 0, "untransplanted", "transplanted"),
+         TRANSPLANT = factor(TRANSPLANT, levels = c("untransplanted", "transplanted")))
+
+treat_clusts <- clusts[clusts %in% levels(main_treat$clust)]
+chisq.test(table(main_treat$HMA, main_treat$clust))
+table(main_treat$HMA, main_treat$clust, main_treat$IPSSM)
+```
+
+
+```{r}
+survfit(formula = Surv(OS_YEARS,OS_STATUS) ~ HMA, main_treat) %>%
+    ggsurvplot(data = main_treat, surv.median.line = "hv", 
+                facet.by = "clust")
+
+```
+
+
+```{r}
+hma_test <- lapply(treat_clusts, function(cl){
+    tmp <- mutate(main_treat,
+            cluster = relevel(clust, cl))
+    os <- summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cluster*HMA + AGE , tmp))
+     coefs <- os$coefficients
+     coef_df <- as_tibble(coefs[, c(1, 5)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              HR = exp(coef))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+hma_test %>%
+    filter(HR > 1 & Comp_clust %in% paste0(treat_clusts, ":HMAhma")) %>%
+    arrange(P_value)
+  
+```
+La mejor respuesta de hma es para High WBC. Los TET2 tienen la peor respuesta. 
+
+
+
+
+### Transplante vs survival
+
+
+```{r}
+chisq.test(table(main_treat$TRANSPLANT, main_treat$clust))
+table(main_treat$TRANSPLANT, main_treat$clust, main_treat$IPSSM)
+```
+
+Los cuatro subgrupos están tratados de manera similar.
+
+```{r}
+survfit(formula = Surv(OS_YEARS,OS_STATUS) ~ TRANSPLANT, main_treat) %>%
+    ggsurvplot(data = main_treat, surv.median.line = "hv", 
+                facet.by = "clust")
+
+```
+
+
+```{r}
+transplant_test <- lapply(treat_clusts, function(cl){
+    tmp <- mutate(main_treat,
+            cluster = relevel(clust, cl))
+    os <- summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cluster*TRANSPLANT + AGE, tmp))
+     coefs <- os$coefficients
+     coef_df <- as_tibble(coefs[, c(1, 5)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              HR = exp(coef))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+transplant_test %>%
+    filter(HR > 1 & Comp_clust %in% paste0(treat_clusts, ":TRANSPLANTtransplanted")) %>%
+    arrange(P_value)
+  
+```
+
+Los chromosomal parece que les funciona mejor el transplante.
+
+## Mutaciones
+
+```{r}
+test_muts <- sel_muts[-grep("TET2", sel_muts)]
+mut_hr_clust <- lapply(test_muts, function(gene){
+    lapply(clusts, function(cl){
+    mod <- coxph(formula(paste("Surv(OS_YEARS,OS_STATUS) ~", gene, "+ AGE")), 
+            clinical_blasts, subset = clust == cl)
+        coef <- summary(mod)$coefficients
+        hr <- exp(coef[1, 1])
+        pval <- coef[1, 5]
+        freq <- mean(clinical_blasts[[gene]][clinical_blasts$clust == cl])
+        N <- sum(clinical_blasts[[gene]][clinical_blasts$clust == cl])
+        data.frame(HR = hr, Pvalue = pval, Cluster = cl, Gene = gene, Freq = freq, N = N )
+    }) %>% Reduce(f = rbind) %>%
+        as_tibble()
+}) %>% Reduce(f = rbind) 
+```
+
+```{r}
+mut_hr_col <- mutate(mut_hr_clust,
+                     HR = ifelse(N < 10, 1, HR),
+                     Pvalue = ifelse(N < 10, 1, Pvalue),
+    Sig = ifelse(Pvalue < 0.05, "Signif", "Not-signif"),
+    Direction = ifelse(HR > 1, "Risk", "Protective"), 
+    Color = factor( paste(Direction, Sig), levels = c("Protective Signif", "Protective Not-signif",
+        "Risk Signif", "Risk Not-signif", "Undetermined")) )
+
+
+mut_hr_sub <- mut_hr_col %>%
+  filter(N > 10)
+n_mut <- mut_hr_sub %>% 
+      group_by(Gene) %>%
+      summarize(n = n()) %>%
+  filter(n > 1)
+mut_hr_sub2 <- mut_hr_sub %>% 
+    filter(Gene %in% n_mut$Gene)
+mut_hr_sub2 %>%
+    ggplot(aes(x = Cluster, y = HR, fill = Color)) +
+        geom_bar(stat = "identity") +
+        theme_bw() +
+        scale_y_continuous(transform = "log2") +
+        facet_wrap(~ Gene, scales = "free_x") +
+        scale_fill_manual(name = "", values = c("darkgreen", "darkred", "red")) +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+```
+
+
+### ASXL1
+
+```{r}
+asxl1_test <- lapply(clusts, function(cl){
+    tmp <- mutate(clinical_blasts,
+             cluster = relevel(clust, cl))
+    os <- summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cluster*ASXL1 + AGE, tmp))
+     coefs <- os$coefficients
+     coef_df <- as_tibble(coefs[, c(1, 5)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              HR = exp(coef))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind)
+asxl1_clusts <- filter(mut_hr_sub2, Gene =="ASXL1")$Cluster
+asxl1_test %>%
+    filter(HR > 1 & Comp_clust %in% paste0(asxl1_clusts, ":ASXL1")   ) %>%
+    arrange(P_value)
+```
+
+
+```{r}
+asxl1_df <- clinical_blasts %>%
+  mutate(ASXL1 = ifelse(ASXL1 == 1, "mutated", "WT")) %>%
+  filter(clust %in% asxl1_clusts) %>%
+  mutate(clust = droplevels(clust))
+survfit(formula = Surv(OS_YEARS,OS_STATUS) ~ ASXL1, data = asxl1_df) %>%
+    ggsurvplot(data = asxl1_df, facet.by = "clust", 
+               surv.median.line = "hv") 
+
+```
+
+
+### DNMT3A
+
+```{r}
+dnmt3a_test <- lapply(clusts, function(cl){
+    tmp <- mutate(clinical_blasts,
+             cluster = relevel(clust, cl))
+    os <- summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cluster*DNMT3A + AGE, tmp))
+     coefs <- os$coefficients
+     coef_df <- as_tibble(coefs[, c(1, 5)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              HR = exp(coef))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+dnmt3a_clusts <- filter(mut_hr_sub2, Gene =="DNMT3A")$Cluster
+
+dnmt3a_test %>%
+    filter(HR > 1 & Comp_clust %in% paste0(dnmt3a_clusts, ":DNMT3A")   ) %>%
+    arrange(P_value)
+```
+Solo hay diferencias con TET2 bi-alélico, que pueden ser debidas a la baja frecuencia de la mutación en este subtipo.
+
+
+```{r}
+dnmt3a_df <- clinical_blasts %>%
+  mutate(DNMT3A = ifelse(DNMT3A == 1, "mutated", "WT")) 
+survfit(formula = Surv(OS_YEARS,OS_STATUS) ~ DNMT3A, data = dnmt3a_df) %>%
+    ggsurvplot(data = dnmt3a_df, facet.by = "clust", 
+               surv.median.line = "hv") 
+
+```
+
+```{r}
+dnmt3a_df2 <- clinical_blasts %>%
+  mutate(DNMT3A = ifelse(DNMT3A == 1, "mutated", "WT"),
+         IPSSM_cat = ifelse(IPSSM %in% c("Very-Low", "Low"), "Very-Low/Low", "Moderate/High/Very-High")) 
+lapply(c("Very-Low/Low", "Moderate/High/Very-High"), function(cat){
+  tmp <- subset(dnmt3a_df2, IPSSM_cat == cat)
+ survfit(formula = Surv(OS_YEARS,OS_STATUS) ~ DNMT3A, data = tmp) %>%
+    ggsurvplot(data = tmp, facet.by = "clust", 
+               surv.median.line = "hv") +
+   ggtitle(cat)
+ 
+})
+```
+
+DNMT3A es protector para los cromosomal.
+
+### SRSF2
+
+```{r}
+srsf2_test <- lapply(clusts, function(cl){
+    tmp <- mutate(clinical_blasts, 
+             cluster = relevel(clust, cl))
+    os <- summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cluster*SRSF2 + AGE, tmp))
+     coefs <- os$coefficients
+     coef_df <- as_tibble(coefs[, c(1, 5)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              HR = exp(coef))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+srsf2_test %>%
+    filter(HR > 1 & Comp_clust %in% paste0(clusts, ":SRSF2")   ) %>%
+    arrange(P_value)
+```
+
+
+```{r}
+srsf2_df <- clinical_blasts %>%
+  mutate(SRSF2 = ifelse(SRSF2 == 1, "mutated", "WT")) 
+survfit(formula = Surv(OS_YEARS,OS_STATUS) ~ SRSF2, data = srsf2_df) %>%
+    ggsurvplot(data = srsf2_df, facet.by = "clust", 
+               surv.median.line = "hv") 
+
+```
+No se ven diferencias.
+
+### U2AF1 
+
+```{r}
+u2af1_test <- lapply(clusts, function(cl){
+    tmp <- mutate(clinical_blasts,
+             cluster = relevel(clust, cl))
+    os <- summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cluster*U2AF1 + AGE + SEX + hma + transplant, tmp))
+     coefs <- os$coefficients
+     coef_df <- as_tibble(coefs[, c(1, 5)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              HR = exp(coef))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+u2af1_test %>%
+    filter(HR > 1 & Comp_clust %in% paste0(clusts, ":U2AF1")   ) %>%
+    arrange(P_value)
+```
+
+
+### RUNX1 
+
+```{r}
+runx1_test <- lapply(clusts, function(cl){
+    tmp <- mutate(clinical_blasts,
+             cluster = relevel(clust, cl))
+    os <- summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cluster*RUNX1 + AGE + SEX + hma + transplant, tmp))
+     coefs <- os$coefficients
+     coef_df <- as_tibble(coefs[, c(1, 5)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              HR = exp(coef))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+runx1_test %>%
+    filter(HR > 1 & Comp_clust %in% paste0(clusts, ":RUNX1")   ) %>%
+    arrange(P_value)
+```
+
+```{r}
+runx1_df <- clinical_blasts %>%
+  mutate(RUNX1 = ifelse(RUNX1 == 1, "mutated", "WT")) 
+survfit(formula = Surv(OS_YEARS,OS_STATUS) ~ RUNX1, data = runx1_df) %>%
+    ggsurvplot(data = runx1_df, facet.by = "clust", 
+               surv.median.line = "hv") 
+
+```
+
+No se ven diferencias.
+
+
+
+
+### BCOR 
+
+```{r}
+bcor_test <- lapply(clusts, function(cl){
+    tmp <- mutate(clinical_blasts,
+             cluster = relevel(clust, cl))
+    os <- summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cluster*BCOR + AGE , tmp))
+     coefs <- os$coefficients
+     coef_df <- as_tibble(coefs[, c(1, 5)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              HR = exp(coef))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+bcor_test %>%
+    filter(HR > 1 & Comp_clust %in% paste0(clusts, ":BCOR")   ) %>%
+    arrange(P_value)
+```
+
+```{r}
+bcor_df <- clinical_blasts %>%
+  mutate(BCOR = ifelse(BCOR == 1, "mutated", "WT")) 
+survfit(formula = Surv(OS_YEARS,OS_STATUS) ~ BCOR, data = bcor_df) %>%
+    ggsurvplot(data = bcor_df, facet.by = "clust", 
+               surv.median.line = "hv") 
+
+```
+
+No se ven diferencias.
+
+
+
+### STAG2 
+
+```{r}
+stag2_test <- lapply(clusts, function(cl){
+    tmp <- mutate(clinical_blasts,
+             cluster = relevel(clust, cl))
+    os <- summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cluster*STAG2 + AGE + SEX + hma + transplant, tmp))
+     coefs <- os$coefficients
+     coef_df <- as_tibble(coefs[, c(1, 5)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              HR = exp(coef))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+stag2_test %>%
+    filter(HR > 1 & Comp_clust %in% paste0(clusts, ":STAG2")   ) %>%
+    arrange(P_value)
+```
+
+```{r}
+stag2_df <- clinical_blasts %>%
+  mutate(STAG2 = ifelse(STAG2 == 1, "mutated", "WT")) 
+survfit(formula = Surv(OS_YEARS,OS_STATUS) ~ STAG2, data = stag2_df) %>%
+    ggsurvplot(data = stag2_df, facet.by = "clust", 
+               surv.median.line = "hv") 
+
+```
+
+No se ven diferencias.
+
+### EZH2 
+
+```{r}
+ezh2_test <- lapply(clusts, function(cl){
+    tmp <- mutate(clinical_blasts,
+             cluster = relevel(clust, cl))
+    os <- summary(coxph(Surv(OS_YEARS,OS_STATUS) ~ cluster*EZH2 + AGE + SEX + hma + transplant, tmp))
+     coefs <- os$coefficients
+     coef_df <- as_tibble(coefs[, c(1, 5)]) %>%
+       mutate(Ref_cluster = cl, 
+              Comp_clust = gsub("cluster", "", rownames(coefs)),
+              HR = exp(coef))
+     colnames(coef_df)[2] <- "P_value"
+     
+     select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
+    }) %>%
+    Reduce(., f = rbind) 
+ezh2_test %>%
+    filter(HR > 1 & Comp_clust %in% paste0(clusts, ":EZH2")   ) %>%
+    arrange(P_value)
+```
+
+```{r}
+ezh2_df <- clinical_blasts %>%
+  mutate(EZH2 = ifelse(EZH2 == 1, "mutated", "WT")) 
+survfit(formula = Surv(OS_YEARS,OS_STATUS) ~ EZH2, data = ezh2_df) %>%
+    ggsurvplot(data = ezh2_df, facet.by = "clust", 
+               surv.median.line = "hv") 
+
+```
+
+No se ven diferencias.
+

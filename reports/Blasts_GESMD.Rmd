@@ -31,13 +31,18 @@ library(tidyverse)
 
 ```{r}
 load("../results/clustering/lowblast_filter_pc_clustering_raw.Rdata")
-load("../results/gesmd_data_low.Rdata")
+load("../results/gesmd_data_all.Rdata")
+
+gesmd_low <- filter(gesmd_data, consensus %in% c("Low blasts", "MDS-IB1", "MDS-IB2"))
+
 ```
 
 ```{r}
-kar_events <- c("delY", "del11q", "del20q", "del7q",  "plus8",  "del7")
-sel_muts <- c("TET2", "ASXL1", "SRSF2", "DNMT3A", "RUNX1", 
-              "STAG2", "U2AF1", "EZH2", "ZRSR2", "TET2bi", "TET2other")
+kar_events <- c("delY", "del11q", "del20q", "del7q",  "plus8",  "del7", "del5q")
+sel_muts <- c("TET2", "ASXL1", "SRSF2", "DNMT3A", "RUNX1", "TP53", "NRAS", 
+              "IDH1", "CEBPA", 
+              "STAG2", "U2AF1", "EZH2", "ZRSR2", "TET2bi", "TET2other", "SF3B1", "BCOR", "IDH2")
+
 ```
 
 ## Classify individuals 
@@ -457,8 +462,8 @@ mut_hr_clust2 <- lapply(test_muts, function(gene){
         coef <- summary(mod)$coefficients
         hr <- exp(coef[1, 1])
         pval <- coef[1, 5]
-        freq <- mean(main_low[[gene]][main_low$clust == cl])
-        N <- sum(main_low[[gene]][main_low$clust == cl])
+        freq <- mean(main_low[[gene]][main_low$clust == cl], na.rm = TRUE)
+        N <- sum(main_low[[gene]][main_low$clust == cl], na.rm = TRUE)
         data.frame(HR = hr, Pvalue = pval, Cluster = cl, Gene = gene, Freq = freq, N = N )
     }) %>% Reduce(f = rbind) %>%
         as_tibble()

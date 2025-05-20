@@ -44,7 +44,7 @@ all_diagnosis <- dbGetQuery(con, sprintf(
   join diagnosis_data dd on p.id = dd.id
   left join list_item li1 on dd.smd_id = li1.id
   where register_number in (%s)",
-  paste0(all_num_web, collapse = ","))) %>%
+  paste0(all_register, collapse = ","))) %>%
   as_tibble()
 
 
