@@ -12,4 +12,7 @@ RUN pip3 install torchinfo tensorboard
 # Install pycox to run survival analysis (1.1)
 RUN pip3 install pycox
 
+# Install pycox to run survival analysis (1.1)
+RUN pip3 install torch_geometric
+
 

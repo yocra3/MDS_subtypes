@@ -25,3 +25,5 @@ RUN R -e 'BiocManager::install(c("umap"))'
 # Install GO related packages (v.1.5)
 RUN R -e 'BiocManager::install(c("GOfuncR", "Homo.sapiens"))'
 
+# Install ca for correspondency analysis (v.1.6)
+RUN R -e 'BiocManager::install(c("ca"))'

@@ -33,11 +33,11 @@ clin_comp <- clinical_all %>%
 
 ## Create mapping from individuals to mutations
 mutation_map <- mutation %>% 
-    subset(ID %in% clin_comp$ID) %>%
+    filter(ID %in% clin_comp$ID) %>%
     pivot_longer(cols = -1, names_to = "Gene") %>%
     filter(value == 1 & !Gene %in% c("FLT3_ITD", "MLL_PTD", 
         "TP53mono", "TP53multi", "TET2bi", "TET2other")) %>%
-    select(-value) %>%
+    select(-value) 
     
 
 write.table(clin_comp, file = "results/mutations/patients_features_gnn.tsv", 

@@ -9,7 +9,7 @@
 #' Notes:
 #'
 #' Docker command:   
-#' docker run -it -v $PWD:$PWD -w $PWD mds_subtypes_rsession:1.0 R
+#' docker run -it -v $PWD:$PWD -w $PWD mds_subtypes_rsession:1.4 R
 #'
 #' ---------------------------
 #' 
@@ -17,209 +17,44 @@
 # Load libraries and data
 library(tidyverse)
 clinical_raw <- read_tsv("./data/IPSSMol/df_clinical.tsv")
+cyto <- read_table("data/IPSSMol/df_cna.tsv")
+mutation <- read_tsv("./data/IPSSMol/df_mut.tsv")
 
 #' ---------------------------
+#' Cytogenetics
+# Remove missing events before merging
+ev_freq <- colSums(cyto[, -1])
+cyto_noNull <- cyto[, c(TRUE, ev_freq > 0)]
 
 # Edit variables
-## Cytogenetics
-#' Remove number of cell used for cytogenetics estimation
-cytogenetics <- gsub("\\[.*\\]", "", clinical_raw$CYTOGENETICS)
-
-#' Expand cytogenetic variables. Create a column per alteration and mark 
-#' whether each individual had this alteration
-cyto_list <- strsplit(cytogenetics, ",")
-
-#' Simplify events
-#' Select only frequent events reported by MDS foundation (https://www.mds-foundation.org/ipss-r-calculator/)
-#' - LOY (-y)
-#' - del(11q)
-#' - del(5q)
-#' - del(12p)
-#' - del(20q)
-#' - del(7q)
-#' - +8
-#' - +19
-#' - i(17q)
-#' - mono7
-#' - inv(3)/t(3q)/del(3q)
-
-simplify_deletion_addition <- function(annotation) {
-  # Extract chromosome number and arm from the annotation
-  extracted <- gsub("\\)\\(", "", annotation)
-  extracted <- gsub("p.*$", "p)", extracted)
-  extracted <- gsub("q.*$", "q)", extracted)
-
-  # Return the simplified annotation
-  return(extracted)
-}
-
-simplify_inversion <- function(annotation) {
-  # Extract chromosome number and arm from the annotation
-  out <-  regmatches(annotation, regexpr("inv\\(\\d+\\)", annotation))
-
-  # Return the simplified annotation
-  return(out)
-}
-
-simplify_translocations <- function(annotation) {
-  # Extract chromosome number and arm from the annotation
-  out <- gsub("t\\((.*);(.*)\\)\\(([pq]).*;([pq]).*\\)", "t(\\1\\3);t(\\2\\4)", annotation)
+#' Include columns to indicate if the number of aberrations, 
+#' deletion, duplications, monosomy or trisomy
+cyto_sum <- cyto_noNull %>%
+  mutate(N_aberrations = rowSums(. == 1), 
+         N_deletions = rowSums(select(., matches("del")) == 1),
+         N_duplications = rowSums(select(., matches("plus")) == 1),
+         N_rearrangements =  rowSums(select(., matches("r_")) == 1),
+         N_monosomies = rowSums(select(., matches("del[0-9]$")) == 1),
+         N_trisomies = rowSums(select(., matches("plus[0-9]$")) == 1))
 
 
-  # Return the simplified annotation
-  return(out)
-}
+#' Mutations
+## Select mutations present in at least 10 samples
+sel_muts <- colSums(mutation[, -1]) > 10 
+sel_muts <- colnames(mutation[, -1])[sel_muts]
 
+mutation_N <- mutate(mutation, 
+    N_mutations = rowSums(mutation[, 2:127])) %>%
+    select(sel_muts, ID, N_mutations)
 
-
-cyto_list_mod <- lapply(cyto_list, function(vec) {
-
-    ## Remove underscores at the beggining
-    vec <- gsub("^_", "", vec)
-    dels <- vec[grep("^del", vec)]
-    dup <- vec[grep("^dup", vec)]
-    trans <- vec[grep("^t", vec)]
-    inv <- vec[grep("^inv", vec)]
-    iso <- vec[grep("^i\\(", vec)]
-    other <- vec[!vec %in% c(dels, iso,  dup, trans, inv)]
-
-    trans_out <- simplify_translocations(trans)
-    c(other, simplify_deletion_addition(c(dels, dup, iso)), 
-     unlist(strsplit(trans_out, ";")), simplify_inversion(inv) )
-})
-cyto_values <- unique(unlist(cyto_list_mod))
-
-#' Create table with events
-add_vars <- function(vec, events){
-
-  out_vec <- rep(0, length(events))
-  if(length(vec) == 0 && is.na(vec)){
-    return(out_vec)
-  }
-  out_vec[events %in% vec] <- 1
-  out_vec
-}
-
-events <- c("-y", "del(11q)", "del(5q)", "del(12p)", "del(20q)", 
-  "del(7q)", "+8", "+19", "-7", "i(17q)", "inv(3)", "del(3q)", "t(3q)", "del(17p)")
-
-cyto_tab <- sapply(cyto_list_mod, add_vars, events = events) %>% 
-  t() %>% 
-  as_tibble() 
-colnames(cyto_tab) <- events
-
-cyto_tab <- mutate(cyto_tab, "chr3ab" = `inv(3)`  + `del(3q)` + `t(3q)`) %>%
-  select(-c(`inv(3)`, `del(3q)`, `t(3q)`))
-
-
-#' Group less frequent events in the same category
-#' Include a column to indicate if the patient had any aberration
-#' If karyotype is complex, return maximum number of aberration (17)
-createExtraVars <- function(vec) {
-    if (length(vec) == 1 && is.na(vec)){
-      return(c(0, 0))
-    }
-    filt_vec <- vec[!vec %in% c("46", "xy", "xx", "y", "x")]
-    any_aberration <- 1
-    if (length(filt_vec) == 0){
-        any_aberration <- 0
-    } 
-    if (length(filt_vec) == 1 && filt_vec == "complex"){
-      return(c(1, 17))
-    }
-    c(any_aberration, length(filt_vec))
-}
-cyto_tab_extra <- sapply(cyto_list_mod, createExtraVars) %>% 
-  t() %>% 
-  as_tibble() 
-colnames(cyto_tab_extra) <- c("any_aberration", "N_aberrations")
-
-cyto_tab_full <- cbind(cyto_tab, cyto_tab_extra) %>%
-    as_tibble() %>%
-    mutate(ID = clinical_raw$ID)
-
-#' Adjust column names
-colnames(cyto_tab_full) <- gsub("-", "mono", colnames(cyto_tab_full) )
-colnames(cyto_tab_full) <- gsub("\\+", "triso", colnames(cyto_tab_full) )
-colnames(cyto_tab_full) <- gsub("\\(|\\)", "", colnames(cyto_tab_full) )
-
-
-## Copy Number
-### Loss
-loss_list <- strsplit(clinical_raw$CNACS_chrarm_loss, ",")
-loss_events <- unique(unlist(loss_list))
-loss_events <- loss_events[!is.na(loss_events)] ## Remove NAs
-
-#' Select values with > 10 events
-loss_tab <- table(unlist(loss_list))
-loss_freq <- names(loss_tab[loss_tab > 10])
-
-minor_val <- function(vec, events){
-
-    if (length(vec) == 1 && is.na(vec)){
-        return(0)
-    } else if (all(vec %in% events)){
-        return(0)
-    } else {
-        return(1)
-    }
-}
-
-loss_mat <- sapply(loss_list, add_vars, events = loss_freq) %>% 
-  t() %>% 
-  as_tibble() 
-colnames(loss_mat) <- paste0("loss_", loss_freq)
-
-loss_mat <- loss_mat %>%
-  mutate(loss_rare = sapply(loss_list, minor_val, events = loss_freq)) %>%
-  mutate(loss_any = ifelse(rowSums(.) >= 1, 1, 0),
-    ID = clinical_raw$ID)
-
-
-### Gains
-gain_list <- strsplit(clinical_raw$CNACS_chrarm_gain, ",")
-gain_events <- unique(unlist(gain_list))
-gain_events <- gain_events[!is.na(gain_events)] ## Remove NAs
-
-#' Select values with > 10 events
-gain_tab <- table(unlist(gain_list))
-gain_freq <- names(gain_tab[gain_tab > 10])
-
-gain_mat <- sapply(gain_list, add_vars, events = gain_freq) %>% 
-  t() %>% 
-  as_tibble() 
-colnames(gain_mat) <- paste0("gain_", gain_freq)
-
-gain_mat <- gain_mat %>%
-  mutate(gain_rare = sapply(gain_list, minor_val, events = gain_freq)) %>%
-  mutate(gain_any = ifelse(rowSums(.) >= 1, 1, 0),
-    ID = clinical_raw$ID)
-
-
-### UPD
-upd_list <- strsplit(clinical_raw$CNACS_chrarm_upd, ",")
-upd_events <- unique(unlist(upd_list))
-upd_events <- upd_events[!is.na(upd_events)] ## Remove NAs
-
-#' Select values with > 10 events
-upd_tab <- table(unlist(upd_list))
-upd_freq <- names(upd_tab[upd_tab > 10])
-
-upd_mat <- sapply(upd_list, add_vars, events = upd_freq) %>% 
-  t() %>% 
-  as_tibble() 
-colnames(upd_mat) <- paste0("upd_", upd_freq)
-
-upd_mat <- upd_mat %>%
-  mutate(upd_rare = sapply(upd_list, minor_val, events = upd_freq)) %>%
-  mutate(upd_any = ifelse(rowSums(.) >= 1, 1, 0),
-    ID = clinical_raw$ID)
-
+clin_comb <- left_join(clinical_raw, cyto_sum, by = "ID") %>%
+  left_join(mutation_N, by = "ID")
+ 
 # Data transform
 #' Create levels for different variables
 #' Round clinical variables 
 #' Consider that samples with missing RINGED_SIDEROBLASTS have 0 sideroblasts.
-clinical <- mutate(clinical_raw, 
+clinical <- mutate(clin_comb, 
     CYTO_IPSSR = factor(CYTO_IPSSR, levels = c("Very-Poor", "Poor", "Int", "Good", "Very-Good")),
     IPSSR = factor(IPSSR, levels = c("Very-Low", "Low", "Int", "High", "Very-High")),
     IPSSRA = factor(IPSSRA, levels = c("Very-Low", "Low", "Int", "High", "Very-High")),
@@ -232,13 +67,18 @@ clinical <- mutate(clinical_raw,
     MONOCYTES = round(MONOCYTES, 0),
     HB = round(HB, 0), 
     PLT = round(PLT, 0),
-    RINGED_SIDEROBLASTS = ifelse(is.na(RINGED_SIDEROBLASTS), 0, RINGED_SIDEROBLASTS)
-)
-
+    RINGED_SIDEROBLASTS = ifelse(is.na(RINGED_SIDEROBLASTS), 0, RINGED_SIDEROBLASTS), 
+    ## Compute consensus MDS sub-types
+    consensus = ifelse(TP53multi == 1 & BM_BLAST <= 20, "Mutated TP53",
+      ifelse(del5q == 1 & del7q == 0 & BM_BLAST <= 5, "del5q",
+        ifelse(SF3B1 > 0 & del7q == 0 & complex == "non-complex" & BM_BLAST <= 5, "mutated SF3B1",
+          ifelse(BM_BLAST <= 5, "Low blasts",
+            ifelse(BM_BLAST > 10, "MDS-IB2",
+              ifelse(BM_BLAST > 5 & BM_BLAST <= 10, "MDS-IB1", "Other"))))))
+) %>%
+  filter(!is.na(consensus)) ## Select samples with consensus classification
+ 
 #' Merge all data.frames
-clinical_all <- left_join(clinical, cyto_tab_full, by = "ID") %>%
-    left_join(loss_mat, by = "ID") %>%
-    left_join(gain_mat, by = "ID") %>%
-    left_join(upd_mat, by = "ID")
-save(clinical_all, file = "results/preprocess/clinical_preproc.Rdata")
+
+save(clinical, file = "results/preprocess/clinical_preproc.Rdata")
 
