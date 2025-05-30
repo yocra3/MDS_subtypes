@@ -55,7 +55,11 @@ comb_dataset <- rbind(select(gesmd, com_variables) %>% mutate(dataset = "GESMD")
 clust_dataset <- comb_dataset %>%
     mutate(PLT = log(PLT)) %>% 
     filter(consensus %in% c("Low blasts", "MDS-IB1", "MDS-IB2")) %>%
-    filter(!WHO_2016 %in% c("aCML", "CMML", "MDS/MPN-RS-T", "MDS/MPN-U")) %>%
+    filter(!WHO_2016 %in% c("aCML", "CMML", "MDS/MPN-RS-T", "MDS/MPN-U", "other")) %>% ## Filtro IWS
+    filter(!WHO_2016 %in% c("WHO2017_LMA", "WHO2017_LMMC", "WHO2017_LMMC_0", 
+        "WHO2017_LMMC_1", "WHO2017_LMMC_2", "WHO2017_LMMCX", "WHO2017_OTROS", 
+        "WHO2017_SMD_SMP_INCLASIFICABLE", "WHO2017_SMD_SMP_SA_T", 
+        "WHO2017_SMD_INCLASIFICABLE")) %>% ## Filtro GESMD
     filter(SF3B1 == 0 & del5q == 0) %>% ## Remove SF3B1 and del5q
     select(any_of(c("ID", clin_vars, kar_events, mut_vars, "dataset"))) %>%
     filter(complete.cases(.)) %>%
@@ -116,8 +120,10 @@ dev.off()
 
 
 # Combine components
-# Select components explaining ~80% of variation
-comb_pc_mat <- cbind(clin_pc$x[, 1:3], kar_pca$rowcoord[, 1:4], mut_pca$rowcoord[, 1:8])
+# Select components explaining >80% of variation
+cumsum(kar_pca$sv)/sum(kar_pca$sv)
+cumsum(mut_pca$sv)/sum(mut_pca$sv)
+comb_pc_mat <- cbind(clin_pc$x[, 1:4], kar_pca$rowcoord[, 1:5], mut_pca$rowcoord[, 1:8])
 comb_pc <- prcomp(comb_pc_mat)
 
 df_comb <- as_tibble(comb_pc$x) %>%
@@ -138,22 +144,23 @@ corrplot(cor(comb_pc_mat), method = 'number')
 dev.off()
 
 png("figures/GESMD_IWS_clustering/corr_oriPCs_combPCs.png", width = 800, height = 800)
-corrplot(cor(comb_pc_mat, comb_pc$x[, 1:11]), method = 'number')
+corrplot(cor(comb_pc_mat, comb_pc$x[, 1:13]), method = 'number')
 dev.off()
 
 
 ## K-means clustering
 ### Define number of clusters based on silhouette score
-### Select 11 components (81.5% of variance)
-set.seed(27)
+### Select 13 components (84% of variance)
 silhouette_score <- function(mat, data_dist, k) {
   km <- kmeans(mat, centers = k, nstart = 1000)
   ss <- silhouette(km$cluster, data_dist)
   mean(ss[, 3])
 }
 
-comb_pc_sel <- comb_pc$x[, 1:11]
+
+comb_pc_sel <- comb_pc$x[, 1:13]
 dist_comb_pc <- dist(comb_pc_sel, method = "euclidean")
+set.seed(27)
 sil_scores <- sapply(2:20, silhouette_score,
       mat = comb_pc_sel, data_dist = dist_comb_pc)
 
@@ -164,8 +171,8 @@ plot(2:20, sil_scores, type="b", pch = 19, frame = FALSE,
      main = "Combined clustering")
 dev.off()
 
-## Bests clusters: 10, 6
-clust_comb <- kmeans(comb_pc_sel, centers = 10, nstart = 1000)$cluster
+## Bests clusters: 11, 14
+clust_comb <- kmeans(comb_pc_sel, centers = 11, nstart = 1000)$cluster
 table(clust_comb, clust_dataset$dataset)
 
 lapply(c(colnames(kar_mat), colnames(mut_mat)), function(var){
@@ -177,15 +184,16 @@ lapply(c(colnames(kar_mat), colnames(mut_mat)), function(var){
 label_class <- 
     ifelse(clust_dataset$delY == 1, "Y-",
         ifelse(clust_dataset$del7 == 1, "7-",
+        ifelse(clust_dataset$complex == 1, "complex",
             ifelse(clust_dataset$del20q == 1, "del20q",
                 ifelse(clust_dataset$plus8 == 1, "8+", 
-                    ifelse(clust_dataset$DNMT3A == 1, "DNMT3A",
-                        ifelse(clust_dataset$STAG2 == 1, "STAG2",
+                    ifelse(clust_dataset$del7q == 1, "del7q",
                             ifelse(clust_dataset$TET2bi == 1, "TET2 bi-allelic",
                                 ifelse(clust_dataset$TET2other == 1, "TET2 monoallelic",
+                                    ifelse(clust_dataset$STAG2 == 1, "STAG2",            
                                     ifelse(clust_dataset$WBC > 6, "Midly Leukopenic",                 
-                                           "Highly Leukopenic")))))))))
-label_class <- factor(label_class, levels = c("8+", "STAG2", "del20q", "DNMT3A", "Midly Leukopenic", "TET2 monoallelic", "Y-", "TET2 bi-allelic", "Highly Leukopenic", "7-"))                                           
+                                           "Highly Leukopenic"))))))))))
+label_class <- factor(label_class, levels = c("Highly Leukopenic", "Midly Leukopenic", "del7q", "8+", "Y-", "complex", "TET2 monoallelic", "STAG2", "del20q", "7-", "TET2 bi-allelic"))
 table(label_class, clust_comb)
 
 tree_dataset <- select(clust_dataset, 
@@ -227,35 +235,20 @@ lapply(c(colnames(kar_mat), colnames(mut_mat)), function(var){
 }) %>% invisible()
 
 
-# ## Relabel clusters and simplify classification
-# tree_data_slim <- tree_dataset %>% 
-#     mutate(clust = factor(labels[as.numeric(clust)], 
-#            levels = c("Highly Leukopenic", "Mildly Leukopenic", "Y-", "7-", "del20q", "STAG2/8+"))) %>%
-#     select("WBC", "STAG2", "del20q", "plus8", "del7", "delY", clust)
-
-# tree_labels <- rpart(clust ~ . , data = tree_data_slim, method = "class")
-
-
-# png("figures/GESMD_IWS_clustering/blasts_classification_tree_labels.png", width = 1000, height = 650)
-# plot(tree_labels)
-# text(tree_labels, use.n = TRUE)
-# dev.off()
-# table(new = predict(tree_labels, tree_data_slim, type = "class"), ori = tree_data_slim$clust)
-
-df_clin$clust <- factor(label_class, levels = c("Highly Leukopenic", "Midly Leukopenic", "TET2 monoallelic", "TET2 bi-allelic", "Y-", "8+", "7-", "del20q", "DNMT3A", "STAG2"))
-df_kar$clust <- factor(label_class, levels = c("Highly Leukopenic", "Midly Leukopenic", "TET2 monoallelic", "TET2 bi-allelic", "Y-", "8+", "7-", "del20q", "DNMT3A", "STAG2"))
-df_mut$clust <- factor(label_class, levels = c("Highly Leukopenic", "Midly Leukopenic", "TET2 monoallelic", "TET2 bi-allelic", "Y-", "8+", "7-", "del20q", "DNMT3A", "STAG2"))
-df_comb$clust <- factor(label_class, levels = c("Highly Leukopenic", "Midly Leukopenic", "TET2 monoallelic", "TET2 bi-allelic", "Y-", "8+", "7-", "del20q", "DNMT3A", "STAG2"))
+df_clin$clust <- factor(label_class, levels = c("Highly Leukopenic", "Midly Leukopenic", "TET2 monoallelic", "TET2 bi-allelic", "Y-", "8+", "7-", "del20q", "del7q", "complex", "STAG2"))
+df_kar$clust <- factor(label_class, levels = c("Highly Leukopenic", "Midly Leukopenic", "TET2 monoallelic", "TET2 bi-allelic", "Y-", "8+", "7-", "del20q", "del7q", "complex", "STAG2"))
+df_mut$clust <- factor(label_class, levels = c("Highly Leukopenic", "Midly Leukopenic", "TET2 monoallelic", "TET2 bi-allelic", "Y-", "8+", "7-", "del20q", "del7q", "complex", "STAG2"))
+df_comb$clust <- factor(label_class, levels = c("Highly Leukopenic", "Midly Leukopenic", "TET2 monoallelic", "TET2 bi-allelic", "Y-", "8+", "7-", "del20q", "del7q", "complex", "STAG2"))
 
 save(sil_scores, clin_pc, df_clin, kar_pca, df_kar,  mut_pca, df_mut, comb_pc, df_comb, 
     file = "results/clustering/combined_pc_clustering_raw.Rdata")
 
-#clust_dataset$clust_tree <-  predict(tree_mod, tree_dataset, type = "class")
+clust_dataset$clust_tree <-  predict(tree_mod, tree_dataset, type = "class")
 clust_dataset$clust_manual <- label_class
 clust_dataset$clust_ori <- clust_comb
 
-combined_full <- left_join(clust_dataset, 
-    select(clinical, hma, transplant, consensus, "ID", "IPSSM", "IPSSM_SCORE", "IPSSR", "IPSSR_SCORE", "AGE", "SEX", complex, starts_with("OS"), starts_with("AMLt")), by = "ID") 
+combined_full <- left_join(clust_dataset %>% select(-PLT), 
+    select(comb_dataset, consensus, "ID", "IPSSM",  "IPSSR", "AGE", "SEX", complex, "PLT"), by = "ID") 
 save(combined_full, file = "results/clustering/combined_pc_clustering.Rdata")
 
 
