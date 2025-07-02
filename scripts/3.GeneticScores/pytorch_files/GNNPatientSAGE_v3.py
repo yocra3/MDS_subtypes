@@ -12,7 +12,7 @@ def safe_concordance_index(times, predictions, events, default_value=0.5):
     except Exception as e:
         return default_value
 
-class PatientGNNSAGE(L.LightningModule):
+class PatientGNNSAGE_v3(L.LightningModule):
     def __init__(self, patient_feat_dim, gene_feat_dim, hidden_gene_dim, hidden_dim, out_dim, use_vaf = False, hidden_vaf = 0, learning_rate=0.001):
         super().__init__()
         
@@ -52,7 +52,11 @@ class PatientGNNSAGE(L.LightningModule):
                               aggr='sum')  # Sum aggregation
 
         # Fully connected layer for prediction
-        self.fc = nn.Linear(hidden_dim, out_dim)
+        self.fc = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, out_dim)
+        )
         self.learning_rate = learning_rate
 
         self.use_vaf = use_vaf 

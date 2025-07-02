@@ -2,7 +2,7 @@
 This is the data preprocessing that should return 
 the .pt with the data to run the model 
 
-docker run --gpus all -v $PWD:$PWD -w $PWD -it pyg/gennius python
+docker run --rm --gpus all -v $PWD:$PWD -w $PWD -it mds_subtypes_python:1.5 python
 
 """
 
@@ -14,77 +14,80 @@ from torch_geometric.data import HeteroData
 from scipy.sparse import csr_matrix
 
 ## Read data
-patient_features = pd.read_csv("results/mutations/patients_features_gnn.tsv", 
+patient_vals = pd.read_csv("results/gnn/preprocess/patient_variables.tsv", sep = "\t")
+
+mutation_map = pd.read_csv("results/gnn/preprocess/mutation_maf_gnn.tsv", 
     sep = "\t")
 
-mutation_map = pd.read_csv("results/mutations/mutation_map_gnn.tsv", 
-    sep = "\t")
+gene_encoding_red = pd.read_csv("results/preprocess/gene_embedding_reduced.tsv", 
+    sep = "\t", index_col=0)
 
+
+# Process data
+## Select columns for defining patient features
+patient_clin_vars = patient_vals[["SEX", "BM_BLAST", "WBC", "ANC", 
+    "HB", "PLT", "plus8", "del7", "del20q", "del7q", "delY",
+    "del5q", "complex", "ID", "LFS_YEARS", "LFS_STATUS", "train"]].copy()
+
+## Remove rows with NaaN
+mutation_maf = mutation_map.dropna(subset=["VAF"])
+
+## Process genetic data
+common_genes = set(mutation_maf.GENE.unique()).intersection(gene_encoding_red.index)
+
+mutation_map_filt = mutation_map[mutation_map.GENE.isin(common_genes)]
+
+gene_embed = gene_encoding_red.loc[list(common_genes), :].copy()
+gene_embed.loc["Gene_0"] = 0  # Add dummy gene row with zeros
+gene_x = torch.from_numpy(csr_matrix(gene_embed).todense()).to(torch.float)
+gene_mapping = {index: i for i, index in enumerate(gene_embed.index)}
+
+
+def define_graph(patient_df, patient_id, mutation_map, gene_embedding, gene_mapping):
+    # Define patient features
+    patient_feats = patient_df.loc[patient_df.ID == patient_id]
+    patient_feats_sel = patient_feats.drop(['LFS_YEARS', 'LFS_STATUS', 'ID', 'train'], axis=1)
+    patient_x = torch.from_numpy(csr_matrix(patient_feats_sel).todense()).to(torch.float)
+    patient_y = torch.from_numpy(csr_matrix(patient_feats[['LFS_YEARS', 'LFS_STATUS']]).todense()).to(torch.float)
+    ## Get genes in patient
+    patient_genes = mutation_map.loc[mutation_map.ID == patient_id]
+    patient_genes = patient_genes.drop("ID", axis=1)
+    gene_0 = pd.DataFrame([{'GENE': 'Gene_0', 'VAF': 0}])
+    patient_genes = pd.concat([patient_genes, gene_0], ignore_index=True)
+    indeces = [gene_mapping[gene] for gene in patient_genes.GENE]
+    gene_sel_x = gene_x[indeces, :]
+    # Index
+    src = [0] * gene_sel_x.shape[0]
+    dst = list(range(gene_sel_x.shape[0]))
+    edge_index = torch.tensor([dst, src])
+    # Weights
+    weights = torch.tensor(patient_genes.VAF, dtype = torch.float)
+    # Generate Object
+    graph = HeteroData()
+    graph['patient'].x = patient_x
+    graph['patient'].y = patient_y
+    graph['patient'].ID = patient_id
+    graph['gene'].x = gene_sel_x 
+    graph['gene'].weights = weights
+    graph['gene', 'patient'].edge_index = edge_index
+    return graph
 
 ### Generate heterodata object
 # Features
-patient_features_sel = patient_features.drop(['OS_YEARS', 'OS_STATUS', 'ID'], axis=1)
-patients_names = patient_features.ID
+patients_names = patient_clin_vars.ID
+graph_list = [define_graph(patient_clin_vars, patient, mutation_map_filt, gene_embed, gene_mapping) for patient in patients_names]
 
+train_list = [x for x, m in zip(graph_list, patient_clin_vars['train']) if m]
+test_list = [x for x, m in zip(graph_list, patient_clin_vars['train']) if not m]
 
-genes = pd.DataFrame({'Gene' : mutation_map['Gene'].unique()})
-gene_encoding = pd.get_dummies(genes, columns=['Gene']) 
-gene_x = torch.from_numpy(csr_matrix(gene_encoding).todense()).to(torch.float)
-gene_mapping = {index: i for i, index in enumerate(genes.Gene.sort_values())}
+# Save graph list
+torch.save([train_list, test_list], "results/gnn/preprocess/graphs_genesEncScGPT.pt" )
 
-## Define graph list
-graph_list = [None] * len(patients_names)
+## Same but using logPLT
+patient_vals2 = pd.read_csv("results/gnn/preprocess/patient_variables_logPLT.tsv", sep = "\t")
+patient_clin_vars2 = patient_vals2[["SEX", "BM_BLAST", "WBC", "ANC", 
+    "HB", "logPLT", "plus8", "del7", "del20q", "del7q", "delY",
+    "del5q", "complex", "ID", "LFS_YEARS", "LFS_STATUS", "train"]].copy()
 
-for i, patient in enumerate(patients_names):
-    # Define patient features
-    patient_feat = patient_features.loc[patient_features.ID == patient]
-    patient_feat_sel = patient_feat.drop(['OS_YEARS', 'OS_STATUS', 'ID'], axis=1)
-    patient_x = torch.from_numpy(csr_matrix(patient_feat_sel).todense()).to(torch.float)
-    patient_y = torch.from_numpy(csr_matrix(patient_feat[['OS_YEARS', 'OS_STATUS']]).todense()).to(torch.float)
-    # Define gene features   
-    patient_genes = mutation_map.loc[mutation_map.ID == patient].Gene
-    indeces = list()
-    for gene in patient_genes:
-        indeces.append(gene_mapping[gene])
-    genes_sel = gene_encoding.iloc[:, indeces]
-    genes_sel['Gene_0'] = False
-    gene_x = torch.from_numpy(csr_matrix(genes_sel).todense()).to(torch.float)
-    # Index
-    src = [0] * gene_x.shape[1]
-    dst = list(range(gene_x.shape[1]))
-    edge_index = torch.tensor([src, dst])
-   # Generate Object
-    data = HeteroData()
-    data['patient'].x = patient_x
-    data['patient'].y = patient_y
-    data['gene'].x = gene_x 
-    data['patient', 'interaction', 'gene'].edge_index = edge_index
-    graph_list[i] = data
+graph_list2 = [define_graph(patient_clin_vars2, patient, mutation_map_filt, gene_embed, gene_mapping) for patient in patients_names]
 
-
-torch.save(graph_list, "results/gnn/preprocess/boolean_dummy.pt" )
-
-
-
-
-
-
-
-# patient_x = torch.from_numpy(csr_matrix(patient_features_sel).todense()).to(torch.float)
-# patient_mapping = {index: i for i, index in enumerate(patient_features.ID)}
-
-
-# # Index
-# src = [patient_mapping[index] for index in mutation_map['ID']]
-# dst = [gene_mapping[index] for index in mutation_map['Gene']]
-# edge_index = torch.tensor([src, dst])
-
-# # Generate Object
-# data = HeteroData()
-# data['patient'].x = patient_x
-# data['gene'].x = gene_x 
-# data['patient', 'interaction', 'gene'].edge_index = edge_index
-    
-# torch.save(data, os.path.join('results/mutations/gnn_graph.pt'))
-
-   

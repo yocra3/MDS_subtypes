@@ -12,7 +12,7 @@ def safe_concordance_index(times, predictions, events, default_value=0.5):
     except Exception as e:
         return default_value
 
-class PatientGNNSAGE(L.LightningModule):
+class PatientGNNSAGE_v2(L.LightningModule):
     def __init__(self, patient_feat_dim, gene_feat_dim, hidden_gene_dim, hidden_dim, out_dim, use_vaf = False, hidden_vaf = 0, learning_rate=0.001):
         super().__init__()
         
@@ -50,9 +50,15 @@ class PatientGNNSAGE(L.LightningModule):
         self.sage2 = SAGEConv(in_channels=(hidden_dim, hidden_dim), 
                               out_channels=hidden_dim, 
                               aggr='sum')  # Sum aggregation
-
+        self.sage_genes = SAGEConv(in_channels=(hidden_dim, hidden_dim), 
+                              out_channels=hidden_dim, 
+                              aggr='sum')
         # Fully connected layer for prediction
-        self.fc = nn.Linear(hidden_dim, out_dim)
+        self.fc = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, out_dim)
+        )
         self.learning_rate = learning_rate
 
         self.use_vaf = use_vaf 
@@ -72,8 +78,11 @@ class PatientGNNSAGE(L.LightningModule):
             gene_x = gene_x + vaf_transformed
         gene_x = self.gene_mlp(gene_x)  # Shape: [num_genes, hidden_dim]
         # First GraphSAGE layer: Update patient embeddings using sum aggregation
-        patient_x = F.relu(self.sage1((gene_x, patient_x), batch['gene', 'patient'].edge_index))
-        patient_x = F.relu(self.sage2((gene_x, patient_x), batch['gene', 'patient'].edge_index))
+        patient_x1 = F.relu(self.sage1((gene_x, patient_x), batch['gene', 'patient'].edge_index))
+        # Update gene embeddings using sum aggregation
+        gene_x = F.relu(self.sage_genes((patient_x1, gene_x), batch['gene', 'patient'].edge_index[[1, 0], :]))
+        # Second GraphSAGE layer: Update patient embeddings using sum aggregation
+        patient_x = F.relu(self.sage2((gene_x, patient_x1), batch['gene', 'patient'].edge_index))
         # Final prediction using updated patient embeddings
         out = self.fc(patient_x)
         loss = cox_ph_loss(out, times, events)
@@ -99,10 +108,13 @@ class PatientGNNSAGE(L.LightningModule):
             vaf_transformed = self.vaf_mal(weights.unsqueeze(1))  # Transform VAF to hidden_gene_dim
             gene_x = gene_x + vaf_transformed
         gene_x = self.gene_mlp(gene_x)  # Shape: [num_genes, hidden_dim]
-        # First GraphSAGE layer: Update patient embeddings using sum aggregation
-        patient_x = F.relu(self.sage1((gene_x, patient_x), batch['gene', 'patient'].edge_index))
-        patient_x = F.relu(self.sage2((gene_x, patient_x), batch['gene', 'patient'].edge_index))
-       # Final prediction using updated patient embeddings
+       # First GraphSAGE layer: Update patient embeddings using sum aggregation
+        patient_x1 = F.relu(self.sage1((gene_x, patient_x), batch['gene', 'patient'].edge_index))
+        # Update gene embeddings using sum aggregation
+        gene_x = F.relu(self.sage_genes((patient_x1, gene_x), batch['gene', 'patient'].edge_index[[1, 0], :]))
+        # Second GraphSAGE layer: Update patient embeddings using sum aggregation
+        patient_x = F.relu(self.sage2((gene_x, patient_x1), batch['gene', 'patient'].edge_index))
+     # Final prediction using updated patient embeddings
         out = self.fc(patient_x)
         val_loss = cox_ph_loss(out, times, events)
         c_index = safe_concordance_index(times.cpu().numpy(), -out.cpu().detach().numpy(), events.cpu().numpy())
@@ -128,8 +140,11 @@ class PatientGNNSAGE(L.LightningModule):
             vaf_transformed = self.vaf_mal(weights.unsqueeze(1))  # Transform VAF to hidden_gene_dim
             gene_x = gene_x + vaf_transformed
         gene_x = self.gene_mlp(gene_x)  # Shape: [num_genes, hidden_dim]
-        patient_x = F.relu(self.sage1((gene_x, patient_x), batch['gene', 'patient'].edge_index))
-        patient_x = F.relu(self.sage2((gene_x, patient_x), batch['gene', 'patient'].edge_index))
+        patient_x1 = F.relu(self.sage1((gene_x, patient_x), batch['gene', 'patient'].edge_index))
+        # Update gene embeddings using sum aggregation
+        gene_x = F.relu(self.sage_genes((patient_x1, gene_x), batch['gene', 'patient'].edge_index[[1, 0], :]))
+        # Second GraphSAGE layer: Update patient embeddings using sum aggregation
+        patient_x = F.relu(self.sage2((gene_x, patient_x1), batch['gene', 'patient'].edge_index))
         # Final prediction using updated patient embeddings
         out = self.fc(patient_x)
         return out
