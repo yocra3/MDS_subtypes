@@ -1,0 +1,211 @@
+# Configuración de Modelos GNN para Cross-Validation
+# =====================================================
+#
+# Configuraciones de hiperparámetros para diferentes versiones de modelos GNN.
+# Las dimensiones de entrada (patient_feat_dim, gene_feat_dim) se obtienen automáticamente
+# de los datos de entrada, por lo que no necesitan especificarse aquí.
+
+# Configuraciones por modelo
+models:
+  # Modelo v1 - Versión básica con features booleanas
+  v1_boolean:
+    model_type: "v1"
+    use_vaf: false
+    hyperparameters:
+      hidden_gene_dim: 32
+      hidden_dim: 16
+      out_dim: 1
+      learning_rate: 0.001
+      hidden_vaf: 8  # No usado cuando use_vaf=false
+    training:
+      max_epochs: 20
+      batch_size_train: 33
+      batch_size_test: 64
+    
+  # Modelo v1 - Versión básica con VAF
+  v1_vaf:
+    model_type: "v1"
+    use_vaf: true
+    hyperparameters:
+      hidden_gene_dim: 32
+      hidden_dim: 16
+      out_dim: 1
+      learning_rate: 0.001
+      hidden_vaf: 8
+    training:
+      max_epochs: 20
+      batch_size_train: 33
+      batch_size_test: 64
+  
+  # Modelo v2 - Con actualización de genes
+  v2_boolean:
+    model_type: "v2"
+    use_vaf: false
+    hyperparameters:
+      hidden_gene_dim: 32
+      hidden_dim: 16
+      out_dim: 1
+      learning_rate: 0.001
+      hidden_vaf: 8
+    training:
+      max_epochs: 30
+      batch_size_train: 33
+      batch_size_test: 64
+  
+  v2_vaf:
+    model_type: "v2"
+    use_vaf: true
+    hyperparameters:
+      hidden_gene_dim: 32
+      hidden_dim: 16
+      out_dim: 1
+      learning_rate: 0.001
+      hidden_vaf: 8
+    training:
+      max_epochs: 30
+      batch_size_train: 33
+      batch_size_test: 64
+  
+  # Modelo v3 - Con NN después de segunda capa SAGE
+  v3_boolean:
+    model_type: "v3"
+    use_vaf: false
+    hyperparameters:
+      hidden_gene_dim: 32
+      hidden_dim: 16
+      out_dim: 1
+      learning_rate: 0.001
+      hidden_vaf: 8
+    training:
+      max_epochs: 30
+      batch_size_train: 33
+      batch_size_test: 64
+  
+  v3_vaf:
+    model_type: "v3"
+    use_vaf: true
+    hyperparameters:
+      hidden_gene_dim: 32
+      hidden_dim: 16
+      out_dim: 1
+      learning_rate: 0.001
+      hidden_vaf: 8
+    training:
+      max_epochs: 30
+      batch_size_train: 33
+      batch_size_test: 64
+  
+  # Modelo v4 - Con Dropout, BatchNorm y L2 Regularization (básico)
+  v4_boolean:
+    model_type: "v4"
+    use_vaf: false
+    hyperparameters:
+      hidden_gene_dim: 32
+      hidden_dim: 64
+      out_dim: 1
+      learning_rate: 0.001
+      dropout: 0.3
+      l2_reg: 1e-4
+      hidden_vaf: 8
+    training:
+      max_epochs: 50
+      batch_size_train: 33
+      batch_size_test: 64
+  
+  v4_vaf:
+    model_type: "v4"
+    use_vaf: true
+    hyperparameters:
+      hidden_gene_dim: 32
+      hidden_dim: 64
+      out_dim: 1
+      learning_rate: 0.001
+      dropout: 0.3
+      l2_reg: 1e-4
+      hidden_vaf: 8
+    training:
+      max_epochs: 50
+      batch_size_train: 33
+      batch_size_test: 64
+  
+  # Modelo v4 - Optimizado para boolean
+  v4_boolean_optim:
+    model_type: "v4"
+    use_vaf: false
+    hyperparameters:
+      hidden_gene_dim: 44  # Optimizado
+      hidden_dim: 55       # Optimizado
+      out_dim: 1
+      learning_rate: 7e-5  # Optimizado
+      dropout: 0.1         # Optimizado
+      l2_reg: 4.4e-5      # Optimizado
+      hidden_vaf: 8
+    training:
+      max_epochs: 150
+      batch_size_train: 33
+      batch_size_test: 64
+  
+  # Modelo v4 - Optimizado para VAF
+  v4_vaf_optim:
+    model_type: "v4"
+    use_vaf: true
+    hyperparameters:
+      hidden_gene_dim: 26   # Optimizado
+      hidden_dim: 57        # Optimizado
+      out_dim: 1
+      learning_rate: 6e-04  # Optimizado
+      dropout: 0.36         # Optimizado
+      l2_reg: 8.5e-04      # Optimizado
+      hidden_vaf: 4        # Optimizado
+    training:
+      max_epochs: 150
+      batch_size_train: 33
+      batch_size_test: 64
+  
+  # Modelo Focal - Con Focal Cox Loss
+  focal_boolean:
+    model_type: "focal"
+    use_vaf: false
+    hyperparameters:
+      hidden_gene_dim: 32
+      hidden_dim: 16
+      out_dim: 1
+      learning_rate: 0.001
+      hidden_vaf: 8
+      focal_alpha: 0.25
+      focal_gamma: 2.0
+    training:
+      max_epochs: 30
+      batch_size_train: 33
+      batch_size_test: 64
+  
+  focal_vaf:
+    model_type: "focal"
+    use_vaf: true
+    hyperparameters:
+      hidden_gene_dim: 32
+      hidden_dim: 16
+      out_dim: 1
+      learning_rate: 0.001
+      hidden_vaf: 8
+      focal_alpha: 0.25
+      focal_gamma: 2.0
+    training:
+      max_epochs: 30
+      batch_size_train: 33
+      batch_size_test: 64
+
+
+# Configuración de cross-validation
+cross_validation:
+  # Estrategia de shuffle para DataLoaders
+  shuffle_train: true
+  shuffle_test: false
+  
+  # Configuración de checkpoints
+checkpoint_config:
+  monitor: "val_c_index"
+  mode: "max"
+  save_top_k: 1
+  
+

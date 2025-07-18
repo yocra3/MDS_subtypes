@@ -1,0 +1,67 @@
+# Configuración de Modelos GNN para Cross-Validation
+# =====================================================
+#
+# Configuraciones de hiperparámetros para diferentes versiones de modelos GNN.
+# Las dimensiones de entrada (patient_feat_dim, gene_feat_dim) se obtienen automáticamente
+# de los datos de entrada, por lo que no necesitan especificarse aquí.
+
+# Configuraciones por modelo
+models:
+  # Modelo v1 - Versión básica con features booleanas
+  v1_boolean:
+    model_type: "v1"
+    use_vaf: false
+    hyperparameters:
+      hidden_gene_dim: 32
+      hidden_dim: 16
+      out_dim: 1
+      learning_rate: 0.001
+      hidden_vaf: 8  # No usado cuando use_vaf=false
+    training:
+      max_epochs: 30
+      batch_size_train: 33
+      batch_size_test: 64
+    
+  # Modelo v1 - Versión básica con VAF
+  v1_vaf:
+    model_type: "v1"
+    use_vaf: true
+    hyperparameters:
+      hidden_gene_dim: 32
+      hidden_dim: 16
+      out_dim: 1
+      learning_rate: 0.001
+      hidden_vaf: 8
+    training:
+      max_epochs: 30
+      batch_size_train: 32
+      batch_size_test: 64
+
+# Configuración de cross-validation
+cross_validation:
+  # Estrategia de shuffle para DataLoaders
+  shuffle_train: true
+  shuffle_test: false
+  
+  # Configuración de checkpoints
+  checkpoint_config:
+    monitor: "val_loss"
+    mode: "min"
+    save_top_k: 1
+  
+  # Configuración de logging
+  logging_config:
+    enable_progress_bar: false
+    enable_model_summary: false
+    log_every_n_steps: 50
+
+# Configuración de hardware
+hardware:
+  # Configuración automática de GPU/CPU
+  auto_select_gpus: true
+  
+  # Configuración de workers para DataLoader
+  num_workers: 0  # 0 para evitar problemas en Docker
+  
+  # Configuración de memoria
+  pin_memory: true

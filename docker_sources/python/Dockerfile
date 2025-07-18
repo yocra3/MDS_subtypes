@@ -24,3 +24,5 @@ RUN pip3 install lightning
 # Install optuna to define hyperparameters (1.5)
 RUN pip3 install optuna optuna-integration[pytorch_lightning] plotly
 
+# Install pytest to test Claude
+RUN pip3 install pytest

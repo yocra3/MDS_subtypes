@@ -1,0 +1,79 @@
+# Configuración para datos reales de MDS
+## Include all genes, Cyto IPSSR, individual karyotypes and all clinical variables 
+## (exclude MONOCYTES and PB_BLASTS due to missings)
+
+# Rutas de datos de entrada (adaptadas al formato del pipeline)
+data_paths:
+  base_path: "./"
+  
+  # Archivo principal con variables clínicas y folds de CV
+  clinical_mutations_file: "results/gnn/preprocess/clinical_fold.tsv"
+  
+  # Archivo con mutaciones (se adaptará el formato)
+  mutations_vaf_file: "data/IPSSMol/maf.tsv"
+  
+  # Archivo con embeddings de genes
+  gene_embeddings_file: "results/preprocess/gene_embedding_reduced.tsv"
+
+# Configuración del procesamiento de variables
+variable_processing:
+  # Variables continuas que necesitan escalado
+  continuous_variables:
+    - "BM_BLAST"
+    - "WBC"
+    - "ANC"
+    - "HB"
+    - "PLT"
+
+  
+  # Variables categóricas que necesitan encoding
+  categorical_variables:
+    - "SEX"
+    - "CYTO_IPSSR"
+    - "complex"
+  
+  # Variables binarias (sin procesamiento especial)
+  binary_variables: ["plus8", "del7", "del20q", "del7q", "delY",
+    "del5q"]
+  
+  # Variables de supervivencia (outputs del modelo)
+  survival_variables:
+    time_variable: "LFS_YEARS"
+    status_variable: "LFS_STATUS"
+  
+  # Selección de genes (automática desde archivo de mutaciones)
+  gene_selection: []
+
+# Configuración para generación de datos
+data_generation:
+  output_formats:
+    - "graph" 
+  
+  graph_format:
+    graph_type: "patient_gene"
+    gene_node_features:
+      embedding_source: "file"
+      embedding_dimension: 16  # Según el archivo de embeddings
+    edge_criteria:
+      use_vaf_filter: false  # No hay VAF en df_mut
+      min_vaf_threshold: 0.0
+    output_filename: "full_model"
+
+# Cross-validation (usar folds existentes)
+cross_validation:
+  n_folds: 10
+  fold_column: "fold"
+
+# Configuración de salida
+output:
+  file_formats:
+    graphs: "pickle" 
+    metadata: "json"
+  validate_output: true
+  save_config_copy: true
+
+# Configuración de logging
+logging:
+  level: "INFO"
+  save_to_file: true
+  log_filename: "real_data_pipeline.log"

@@ -1,0 +1,180 @@
+2025-07-04 11:51:25,483 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:51:25,483 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:51:25,483 - data_loader - INFO - Cargando datos clínicos...
+2025-07-04 11:51:25,483 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:51:25,483 - data_loader - INFO - Cargando datos de CNA...
+2025-07-04 11:51:25,484 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:51:25,484 - data_loader - INFO - Cargando folds de cross-validation...
+2025-07-04 11:51:25,484 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:51:25,484 - data_loader - INFO - Cargando gene embeddings...
+2025-07-04 11:51:25,484 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:51:25,484 - data_loader - INFO - Cargando datos de mutaciones...
+2025-07-04 11:51:25,484 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:51:25,486 - data_loader - INFO - Validando consistencia de datos...
+2025-07-04 11:51:25,527 - prepare_data_unified - ERROR - Error cargando configuración desde /tmp/tmp9p_pookc/test_config.txt: Formato de configuración no soportado: .txt
+2025-07-04 11:51:25,530 - prepare_data_unified - INFO - Configuración cargada exitosamente desde /tmp/tmp5u7s90yr/test_config.json
+2025-07-04 11:51:25,530 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:51:25,530 - clinical_processor - INFO - ClinicalProcessor inicializado
+2025-07-04 11:51:25,530 - data_generators - INFO - DataGenerators inicializado
+2025-07-04 11:51:25,530 - prepare_data_unified - INFO - Pipeline inicializado con configuración: /tmp/tmp5u7s90yr/test_config.json
+2025-07-04 11:51:25,530 - prepare_data_unified - INFO - Directorio de salida: /tmp/tmp5u7s90yr/output
+2025-07-04 11:51:25,530 - prepare_data_unified - INFO - Configuración cargada exitosamente desde /tmp/tmp5u7s90yr/test_config.json
+2025-07-04 11:51:25,535 - prepare_data_unified - INFO - Configuración cargada exitosamente desde /tmp/tmpvmj2su3x/test_config.yaml
+2025-07-04 11:51:25,535 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:51:25,535 - clinical_processor - INFO - ClinicalProcessor inicializado
+2025-07-04 11:51:25,535 - data_generators - INFO - DataGenerators inicializado
+2025-07-04 11:51:25,536 - prepare_data_unified - INFO - Pipeline inicializado con configuración: /tmp/tmpvmj2su3x/test_config.yaml
+2025-07-04 11:51:25,536 - prepare_data_unified - INFO - Directorio de salida: /tmp/tmpvmj2su3x/output
+2025-07-04 11:51:25,538 - prepare_data_unified - INFO - Configuración cargada exitosamente desde /tmp/tmpvmj2su3x/test_config.yaml
+2025-07-04 11:51:25,543 - prepare_data_unified - INFO - Configuración cargada exitosamente desde /tmp/tmp3rjraarh/test_config.yaml
+2025-07-04 11:51:25,543 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:51:25,543 - clinical_processor - INFO - ClinicalProcessor inicializado
+2025-07-04 11:51:25,543 - data_generators - INFO - DataGenerators inicializado
+2025-07-04 11:51:25,543 - prepare_data_unified - INFO - Pipeline inicializado con configuración: /tmp/tmp3rjraarh/test_config.yaml
+2025-07-04 11:51:25,543 - prepare_data_unified - INFO - Directorio de salida: /tmp/tmp3rjraarh/output
+2025-07-04 11:51:25,548 - prepare_data_unified - INFO - Configuración cargada exitosamente desde /tmp/tmph5d2w4zp/test_config.yaml
+2025-07-04 11:51:25,548 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:51:25,548 - clinical_processor - INFO - ClinicalProcessor inicializado
+2025-07-04 11:51:25,548 - data_generators - INFO - DataGenerators inicializado
+2025-07-04 11:51:25,548 - prepare_data_unified - INFO - Pipeline inicializado con configuración: /tmp/tmph5d2w4zp/test_config.yaml
+2025-07-04 11:51:25,548 - prepare_data_unified - INFO - Directorio de salida: /tmp/tmph5d2w4zp/output
+2025-07-04 11:51:25,548 - prepare_data_unified - INFO - === Iniciando Pipeline Unificado de Preparación de Datos ===
+2025-07-04 11:51:25,548 - prepare_data_unified - INFO - Paso 1: Cargando datos base...
+2025-07-04 11:51:25,548 - data_loader - INFO - Cargando todos los datos...
+2025-07-04 11:51:25,548 - data_loader - INFO - Cargando datos clínicos...
+2025-07-04 11:51:25,548 - prepare_data_unified - ERROR - Error en el pipeline: Por implementar en paso 2B
+2025-07-04 11:56:07,756 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:56:07,756 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:56:07,756 - data_loader - INFO - Cargando datos clínicos...
+2025-07-04 11:56:07,756 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:56:07,756 - data_loader - INFO - Cargando datos de CNA...
+2025-07-04 11:56:07,756 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:56:07,757 - data_loader - INFO - Cargando folds de cross-validation...
+2025-07-04 11:56:07,757 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:56:07,757 - data_loader - INFO - Cargando gene embeddings...
+2025-07-04 11:56:07,757 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:56:07,757 - data_loader - INFO - Cargando datos de mutaciones...
+2025-07-04 11:56:07,757 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:56:07,759 - data_loader - INFO - Validando consistencia de datos...
+2025-07-04 11:56:07,800 - prepare_data_unified - ERROR - Error cargando configuración desde /tmp/tmps1u144i9/test_config.txt: Formato de configuración no soportado: .txt
+2025-07-04 11:56:07,803 - prepare_data_unified - INFO - Configuración cargada exitosamente desde /tmp/tmpgaktauvb/test_config.json
+2025-07-04 11:56:07,803 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:56:07,803 - clinical_processor - INFO - ClinicalProcessor inicializado
+2025-07-04 11:56:07,803 - data_generators - INFO - DataGenerators inicializado
+2025-07-04 11:56:07,803 - prepare_data_unified - INFO - Pipeline inicializado con configuración: /tmp/tmpgaktauvb/test_config.json
+2025-07-04 11:56:07,803 - prepare_data_unified - INFO - Directorio de salida: /tmp/tmpgaktauvb/output
+2025-07-04 11:56:07,804 - prepare_data_unified - INFO - Configuración cargada exitosamente desde /tmp/tmpgaktauvb/test_config.json
+2025-07-04 11:56:07,809 - prepare_data_unified - INFO - Configuración cargada exitosamente desde /tmp/tmpx_q51pws/test_config.yaml
+2025-07-04 11:56:07,809 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:56:07,809 - clinical_processor - INFO - ClinicalProcessor inicializado
+2025-07-04 11:56:07,809 - data_generators - INFO - DataGenerators inicializado
+2025-07-04 11:56:07,809 - prepare_data_unified - INFO - Pipeline inicializado con configuración: /tmp/tmpx_q51pws/test_config.yaml
+2025-07-04 11:56:07,809 - prepare_data_unified - INFO - Directorio de salida: /tmp/tmpx_q51pws/output
+2025-07-04 11:56:07,812 - prepare_data_unified - INFO - Configuración cargada exitosamente desde /tmp/tmpx_q51pws/test_config.yaml
+2025-07-04 11:56:07,817 - prepare_data_unified - INFO - Configuración cargada exitosamente desde /tmp/tmpi7o__v84/test_config.yaml
+2025-07-04 11:56:07,818 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:56:07,818 - clinical_processor - INFO - ClinicalProcessor inicializado
+2025-07-04 11:56:07,818 - data_generators - INFO - DataGenerators inicializado
+2025-07-04 11:56:07,818 - prepare_data_unified - INFO - Pipeline inicializado con configuración: /tmp/tmpi7o__v84/test_config.yaml
+2025-07-04 11:56:07,818 - prepare_data_unified - INFO - Directorio de salida: /tmp/tmpi7o__v84/output
+2025-07-04 11:56:07,823 - prepare_data_unified - INFO - Configuración cargada exitosamente desde /tmp/tmpk0rxlbn3/test_config.yaml
+2025-07-04 11:56:07,824 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:56:07,824 - clinical_processor - INFO - ClinicalProcessor inicializado
+2025-07-04 11:56:07,824 - data_generators - INFO - DataGenerators inicializado
+2025-07-04 11:56:07,824 - prepare_data_unified - INFO - Pipeline inicializado con configuración: /tmp/tmpk0rxlbn3/test_config.yaml
+2025-07-04 11:56:07,824 - prepare_data_unified - INFO - Directorio de salida: /tmp/tmpk0rxlbn3/output
+2025-07-04 11:56:07,824 - prepare_data_unified - INFO - === Iniciando Pipeline Unificado de Preparación de Datos ===
+2025-07-04 11:56:07,824 - prepare_data_unified - INFO - Paso 1: Cargando datos base...
+2025-07-04 11:56:07,824 - data_loader - INFO - Cargando todos los datos...
+2025-07-04 11:56:07,824 - data_loader - INFO - Cargando datos clínicos...
+2025-07-04 11:56:07,824 - prepare_data_unified - ERROR - Error en el pipeline: Por implementar en paso 2B
+2025-07-04 11:56:46,536 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:56:46,536 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:56:46,536 - data_loader - INFO - Cargando datos clínicos...
+2025-07-04 11:56:46,536 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:56:46,536 - data_loader - INFO - Cargando datos de CNA...
+2025-07-04 11:56:46,536 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:56:46,536 - data_loader - INFO - Cargando folds de cross-validation...
+2025-07-04 11:56:46,536 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:56:46,536 - data_loader - INFO - Cargando gene embeddings...
+2025-07-04 11:56:46,537 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:56:46,537 - data_loader - INFO - Cargando datos de mutaciones...
+2025-07-04 11:56:46,537 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:56:46,539 - data_loader - INFO - Validando consistencia de datos...
+2025-07-04 11:56:46,574 - prepare_data_unified - ERROR - Error cargando configuración desde /tmp/tmpddplzxl4/test_config.txt: Formato de configuración no soportado: .txt
+2025-07-04 11:56:46,576 - prepare_data_unified - INFO - Configuración cargada exitosamente desde /tmp/tmpw4a_3vgs/test_config.json
+2025-07-04 11:56:46,577 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:56:46,577 - clinical_processor - INFO - ClinicalProcessor inicializado
+2025-07-04 11:56:46,577 - data_generators - INFO - DataGenerators inicializado
+2025-07-04 11:56:46,577 - prepare_data_unified - INFO - Pipeline inicializado con configuración: /tmp/tmpw4a_3vgs/test_config.json
+2025-07-04 11:56:46,577 - prepare_data_unified - INFO - Directorio de salida: /tmp/tmpw4a_3vgs/output
+2025-07-04 11:56:46,577 - prepare_data_unified - INFO - Configuración cargada exitosamente desde /tmp/tmpw4a_3vgs/test_config.json
+2025-07-04 11:56:46,582 - prepare_data_unified - INFO - Configuración cargada exitosamente desde /tmp/tmpt6lzywx6/test_config.yaml
+2025-07-04 11:56:46,582 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:56:46,582 - clinical_processor - INFO - ClinicalProcessor inicializado
+2025-07-04 11:56:46,582 - data_generators - INFO - DataGenerators inicializado
+2025-07-04 11:56:46,582 - prepare_data_unified - INFO - Pipeline inicializado con configuración: /tmp/tmpt6lzywx6/test_config.yaml
+2025-07-04 11:56:46,583 - prepare_data_unified - INFO - Directorio de salida: /tmp/tmpt6lzywx6/output
+2025-07-04 11:56:46,585 - prepare_data_unified - INFO - Configuración cargada exitosamente desde /tmp/tmpt6lzywx6/test_config.yaml
+2025-07-04 11:56:46,590 - prepare_data_unified - INFO - Configuración cargada exitosamente desde /tmp/tmpyrt5vgqz/test_config.yaml
+2025-07-04 11:56:46,590 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:56:46,590 - clinical_processor - INFO - ClinicalProcessor inicializado
+2025-07-04 11:56:46,590 - data_generators - INFO - DataGenerators inicializado
+2025-07-04 11:56:46,590 - prepare_data_unified - INFO - Pipeline inicializado con configuración: /tmp/tmpyrt5vgqz/test_config.yaml
+2025-07-04 11:56:46,590 - prepare_data_unified - INFO - Directorio de salida: /tmp/tmpyrt5vgqz/output
+2025-07-04 11:56:46,595 - prepare_data_unified - INFO - Configuración cargada exitosamente desde /tmp/tmpcs8bpcw7/test_config.yaml
+2025-07-04 11:56:46,595 - data_loader - INFO - DataLoader inicializado
+2025-07-04 11:56:46,595 - clinical_processor - INFO - ClinicalProcessor inicializado
+2025-07-04 11:56:46,595 - data_generators - INFO - DataGenerators inicializado
+2025-07-04 11:56:46,595 - prepare_data_unified - INFO - Pipeline inicializado con configuración: /tmp/tmpcs8bpcw7/test_config.yaml
+2025-07-04 11:56:46,595 - prepare_data_unified - INFO - Directorio de salida: /tmp/tmpcs8bpcw7/output
+2025-07-04 11:56:46,595 - prepare_data_unified - INFO - === Iniciando Pipeline Unificado de Preparación de Datos ===
+2025-07-04 11:56:46,596 - prepare_data_unified - INFO - Paso 1: Cargando datos base...
+2025-07-04 11:56:46,596 - data_loader - INFO - Cargando todos los datos...
+2025-07-04 11:56:46,596 - data_loader - INFO - Cargando datos clínicos...
+2025-07-04 11:56:46,596 - prepare_data_unified - ERROR - Error en el pipeline: Por implementar en paso 2B
+2025-07-04 13:30:05,513 - data_loader - INFO - DataLoader inicializado
+2025-07-04 13:30:05,513 - data_loader - INFO - DataLoader inicializado
+2025-07-04 13:30:05,514 - data_loader - INFO - Cargando datos clínicos...
+2025-07-04 13:30:05,514 - data_loader - INFO - DataLoader inicializado
+2025-07-04 13:30:05,514 - data_loader - INFO - Cargando datos de CNA...
+2025-07-04 13:30:05,514 - data_loader - INFO - DataLoader inicializado
+2025-07-04 13:30:05,514 - data_loader - INFO - Cargando folds de cross-validation...
+2025-07-04 13:30:05,514 - data_loader - INFO - DataLoader inicializado
+2025-07-04 13:30:05,514 - data_loader - INFO - Cargando gene embeddings...
+2025-07-04 13:30:05,514 - data_loader - INFO - DataLoader inicializado
+2025-07-04 13:30:05,514 - data_loader - INFO - Cargando datos de mutaciones...
+2025-07-04 13:30:05,514 - data_loader - INFO - DataLoader inicializado
+2025-07-04 13:30:05,516 - data_loader - INFO - Validando consistencia de datos...
+2025-07-04 13:30:05,554 - prepare_data_unified - ERROR - Error cargando configuración desde /tmp/tmpoewf7zk9/test_config.txt: Formato de configuración no soportado: .txt
+2025-07-04 13:30:05,556 - prepare_data_unified - INFO - Configuración cargada exitosamente desde /tmp/tmp937vmpla/test_config.json
+2025-07-04 13:30:05,557 - data_loader - INFO - DataLoader inicializado
+2025-07-04 13:30:05,557 - clinical_processor - INFO - ClinicalProcessor inicializado
+2025-07-04 13:30:05,557 - data_generators - INFO - DataGenerators inicializado
+2025-07-04 13:30:05,557 - prepare_data_unified - INFO - Pipeline inicializado con configuración: /tmp/tmp937vmpla/test_config.json
+2025-07-04 13:30:05,557 - prepare_data_unified - INFO - Directorio de salida: /tmp/tmp937vmpla/output
+2025-07-04 13:30:05,557 - prepare_data_unified - INFO - Configuración cargada exitosamente desde /tmp/tmp937vmpla/test_config.json
+2025-07-04 13:30:05,562 - prepare_data_unified - INFO - Configuración cargada exitosamente desde /tmp/tmp_ces7pnd/test_config.yaml
+2025-07-04 13:30:05,562 - data_loader - INFO - DataLoader inicializado
+2025-07-04 13:30:05,562 - clinical_processor - INFO - ClinicalProcessor inicializado
+2025-07-04 13:30:05,562 - data_generators - INFO - DataGenerators inicializado
+2025-07-04 13:30:05,562 - prepare_data_unified - INFO - Pipeline inicializado con configuración: /tmp/tmp_ces7pnd/test_config.yaml
+2025-07-04 13:30:05,562 - prepare_data_unified - INFO - Directorio de salida: /tmp/tmp_ces7pnd/output
+2025-07-04 13:30:05,565 - prepare_data_unified - INFO - Configuración cargada exitosamente desde /tmp/tmp_ces7pnd/test_config.yaml
+2025-07-04 13:30:05,569 - prepare_data_unified - INFO - Configuración cargada exitosamente desde /tmp/tmp5icayl7s/test_config.yaml
+2025-07-04 13:30:05,570 - data_loader - INFO - DataLoader inicializado
+2025-07-04 13:30:05,570 - clinical_processor - INFO - ClinicalProcessor inicializado
+2025-07-04 13:30:05,570 - data_generators - INFO - DataGenerators inicializado
+2025-07-04 13:30:05,570 - prepare_data_unified - INFO - Pipeline inicializado con configuración: /tmp/tmp5icayl7s/test_config.yaml
+2025-07-04 13:30:05,570 - prepare_data_unified - INFO - Directorio de salida: /tmp/tmp5icayl7s/output
+2025-07-04 13:30:05,574 - prepare_data_unified - INFO - Configuración cargada exitosamente desde /tmp/tmprpy_vnnx/test_config.yaml
+2025-07-04 13:30:05,575 - data_loader - INFO - DataLoader inicializado
+2025-07-04 13:30:05,575 - clinical_processor - INFO - ClinicalProcessor inicializado
+2025-07-04 13:30:05,575 - data_generators - INFO - DataGenerators inicializado
+2025-07-04 13:30:05,575 - prepare_data_unified - INFO - Pipeline inicializado con configuración: /tmp/tmprpy_vnnx/test_config.yaml
+2025-07-04 13:30:05,575 - prepare_data_unified - INFO - Directorio de salida: /tmp/tmprpy_vnnx/output
+2025-07-04 13:30:05,575 - prepare_data_unified - INFO - === Iniciando Pipeline Unificado de Preparación de Datos ===
+2025-07-04 13:30:05,575 - prepare_data_unified - INFO - Paso 1: Cargando datos base...
+2025-07-04 13:30:05,575 - data_loader - INFO - Cargando todos los datos...
+2025-07-04 13:30:05,575 - data_loader - INFO - Cargando datos clínicos...
+2025-07-04 13:30:05,575 - prepare_data_unified - ERROR - Error en el pipeline: Por implementar en paso 2B

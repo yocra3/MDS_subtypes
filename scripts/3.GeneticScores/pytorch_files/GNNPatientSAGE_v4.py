@@ -19,13 +19,13 @@ def safe_concordance_index(times, predictions, events, default_value=0.5):
 
 class PatientGNNSAGE_v4(L.LightningModule):
     def __init__(self, patient_feat_dim, gene_feat_dim, hidden_gene_dim, hidden_dim, out_dim, 
-                 dropout=0.3, l2_reg=1e-4, use_vaf=False, hidden_vaf=0, learning_rate=0.001):
+                 dropout=0.2, l2_reg=1e-3, use_vaf=False, hidden_vaf=0, learning_rate=0.001):
         super().__init__()
         self.save_hyperparameters()
         
         self.use_vaf = use_vaf
         self.learning_rate = learning_rate
-        self.l2_reg = l2_reg
+        self.l2_reg = float(l2_reg)
         self.dropout = dropout
         
         # MLP para patient features con Dropout y BatchNorm
@@ -105,21 +105,21 @@ class PatientGNNSAGE_v4(L.LightningModule):
         patient_y = batch['patient'].y
         times = patient_y[:, 0]
         events = patient_y[:, 1]
-        
+
         # Forward pass
         out = self.forward(batch)
-        
+
         # Cox loss principal
         cox_loss = cox_ph_loss(out, times, events)
-        
+
         # L2 Regularization - calcular la norma L2 de todos los parámetros
         l2_loss = 0
         for param in self.parameters():
             l2_loss += torch.norm(param, 2)
-        
+   
         # Loss total = Cox loss + L2 regularization
         total_loss = cox_loss + self.l2_reg * l2_loss
-        
+   
         # Calculate metrics
         c_index = safe_concordance_index(times, out, events)
         

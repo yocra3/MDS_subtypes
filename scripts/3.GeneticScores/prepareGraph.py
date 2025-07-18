@@ -91,3 +91,8 @@ patient_clin_vars2 = patient_vals2[["SEX", "BM_BLAST", "WBC", "ANC",
 
 graph_list2 = [define_graph(patient_clin_vars2, patient, mutation_map_filt, gene_embed, gene_mapping) for patient in patients_names]
 
+train_list2 = [x for x, m in zip(graph_list2, patient_clin_vars2['train']) if m]
+test_list2 = [x for x, m in zip(graph_list2, patient_clin_vars2['train']) if not m]
+
+# Save graph list
+torch.save([train_list2, test_list2], "results/gnn/preprocess/graphs_genesEncScGPT_logPLT.pt" )

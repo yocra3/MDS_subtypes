@@ -146,6 +146,16 @@ summary(lm(gnn_boolean_cind_diff ~ SF3B1_del5q, clin_all))
 summary(lm(gnn_boolean_cind_diff ~ SETBP1_del7, clin_all))
 
 
+summary(lm(gnn_boolean_cind_diff ~ CYTO_IPSSR, clin_all))
+png("figures/gnn_models/comp_boolean_ipssm_CYTO_IPSSR.png", res = 300, width = 1500, height = 1000)
+     clin_all %>%  
+        ggplot(aes(x = gnn_boolean_cind - IPSSM_cind, y = gnn_boolean_z - IPSSM_SCORE, color = factor(CYTO_IPSSR))) +
+        geom_point() + 
+        ggtitle("CYTO_IPSSR") +
+        xlab("C-index difference") +
+        ylab("Score difference") +
+        theme_bw()
+dev.off()
 
 png("figures/gnn_models/comp_boolean_ipssm_del7_SETBP1.png", res = 300, width = 1500, height = 1000)
      clin_all %>%  

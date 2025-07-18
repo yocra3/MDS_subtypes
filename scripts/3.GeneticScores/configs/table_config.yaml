@@ -1,0 +1,92 @@
+# Configuración específica para modelos NN tradicionales (CoxPH, Random Forest, etc.)
+# Optimizada para datos tabulares usando el archivo clinical_mutations_combined
+
+# Rutas de datos simplificadas
+data_paths:
+  base_path: "/home/cruiza/data/cruiza/MDS_subtypes"
+  
+  # Archivo principal con todas las variables (clínicas + mutaciones binarizadas + folds CV)
+  clinical_mutations_file: "data/processed/clinical_mutations_combined.tsv"
+  
+  # Para modelos tabulares, no necesitamos el archivo de VAF
+  mutations_vaf_file: null
+
+# Procesamiento completo de variables para modelos tabulares
+variable_processing:
+  continuous_variables:
+    # Variables demográficas
+    - "Age"
+    
+    # Variables hematológicas
+    - "HB"
+    - "ANC"
+    - "PLT"
+    - "BM_BLAST"
+    - "PB_BLAST"
+  
+  categorical_variables:
+    - "Sex"
+    - "Cytogenetics_IPSS"
+    - "WHO_Classification"
+  
+  binary_variables:
+    - "Complex_Karyotype"
+    # Las mutaciones binarizadas se detectan automáticamente del archivo
+  
+  # Variables de supervivencia (outputs del modelo)
+  survival_variables:
+    time_variable: "OS"
+    status_variable: "OS_STATUS"
+  
+  # Selección específica de genes para modelos tabulares
+  gene_selection:
+    # Lista de genes específicos (mutaciones binarizadas) para modelos tabulares
+    selected_genes: [
+      "TP53",
+      "ASXL1", 
+      "SF3B1",
+      "DNMT3A",
+      "SRSF2",
+      "RUNX1",
+      "TET2",
+      "IDH1",
+      "IDH2",
+      "U2AF1"
+    ]
+    
+
+# Configuración para datos tabulares
+data_generation:
+  output_formats:
+    - "table"  # Solo tablas
+  
+  table_format:
+    # Incluir todas las variables clínicas procesadas
+    include_all_clinical: true
+    
+    output_filename: "table_data"
+
+# Cross-validation desde archivo
+cross_validation:
+  n_folds: 10
+  fold_column: "fold"
+
+# Salida optimizada para análisis tabular
+output:
+  file_formats:
+    tables: "pickle"     # Mejor para conservar tipos de datos de pandas
+    metadata: "json"
+  
+  compression: "gzip"
+  validate_output: true
+  save_config_copy: true
+  
+  # Información adicional para tablas
+  include_feature_names: true
+  include_data_dictionary: true
+
+# Logging estándar
+logging:
+  level: "INFO"
+  save_to_file: true
+  log_filename: "prepare_data_tables.log"
