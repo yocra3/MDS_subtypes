@@ -50,3 +50,23 @@ python scripts/3.GeneticScores/evaluate_gene_effect.py \
     --reference_score 0.8384760022163391 \
     --results_dir results/gnn/full_input_model/v1_boolean/
 
+## Define graphs by gene
+python scripts/3.GeneticScores/define_graphs_by_gene.py \
+    --config scripts/3.GeneticScores/configs/full_model_inference.yaml \
+    --output results/gnn/preprocess/full_input_per_gene/
+
+
+python scripts/3.GeneticScores/run_gnn_genes.py \
+    --graph_data_path results/gnn/preprocess/full_input_per_gene/full_model_individual.pt \
+    --config_path scripts/3.GeneticScores/configs/gnn_models_config.yaml \
+    --results_dir results/gnn/full_input_model_per_gene \
+    --models v1_boolean \
+    --lightning_logs_dir lightning_logs/full_input_model_per_gene/
+
+python scripts/3.GeneticScores/evaluate_gene_effect_per_gene.py \
+    --graph_data_path results/gnn/preprocess/full_input/full_model_individual.pt \
+    --graph_gene_path results/gnn/preprocess/full_input_per_gene/full_model_individual.pt  \
+    --config_path scripts/3.GeneticScores/configs/gnn_models_config.yaml \
+    --check_point_path results/gnn/full_input_model_per_gene/model_checkpoints/ \
+    --model_name v1_boolean \
+    --results_dir results/gnn/full_input_model/v1_boolean/

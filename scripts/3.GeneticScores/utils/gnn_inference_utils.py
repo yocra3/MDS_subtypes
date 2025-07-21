@@ -88,6 +88,36 @@ def find_checkpoint(checkpoint_path: str, model_name: str, fold: int) -> str:
     
     return checkpoint
 
+
+def find_checkpoint_gene(checkpoint_path: str, model_name: str, gene: str) -> str:
+    """
+    Busca y selecciona el checkpoint más reciente para un modelo y fold específicos.
+    
+    Args:
+        checkpoint_path (str): Ruta base de los checkpoints
+        model_name (str): Nombre del modelo
+        fold (int): Número del fold
+        
+    Returns:
+        str: Ruta al checkpoint seleccionado
+        
+    Raises:
+        FileNotFoundError: Si no se encuentran checkpoints
+    """
+    base_checkpoint_path = f"{checkpoint_path}/gene_{gene}/{model_name}_gene_{gene}"
+    checkpoint_pattern = f"{base_checkpoint_path}*.ckpt"
+    
+    checkpoint_files = glob.glob(checkpoint_pattern)
+    
+    if not checkpoint_files:
+        raise FileNotFoundError(f"No se encontraron checkpoints para el patrón: {checkpoint_pattern}")
+    
+    # Seleccionar el archivo más reciente basado en la fecha de modificación
+    checkpoint = max(checkpoint_files, key=os.path.getmtime)
+    print(f"Using checkpoint: {checkpoint}")
+    
+    return checkpoint
+
 def instantiate_gnn_model(model_name: str, config: Dict[str, Any], 
                          patient_feat_dim: int, gene_feat_dim: int, 
                          checkpoint_path: str):

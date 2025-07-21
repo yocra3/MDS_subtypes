@@ -6,6 +6,7 @@
 data/
 results/
 figures/
+lightning_logs/
 
 # Session Data files
 .RData

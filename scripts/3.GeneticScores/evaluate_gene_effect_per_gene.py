@@ -6,7 +6,7 @@ import yaml
 # Agregar ruta para importar clases de evaluación GNN
 sys.path.append('./scripts/3.GeneticScores/utils/')
 from evalGNN_classes import EvalGNN
-from gnn_inference_utils import instantiate_gnn_model
+from gnn_inference_utils import instantiate_gnn_model, find_checkpoint_gene
 from typing import Dict, Any, Tuple
 from torch_geometric.data.batch import Batch
 import numpy as np
@@ -14,7 +14,7 @@ import pandas as pd
 import argparse
 import os
 
-class GNN_Inference_individual:
+class GNN_Inference_individual_per_gene:
     """
     Clase para ejecutar inferencia de modelos GNN con validación cruzada.
     
@@ -24,6 +24,7 @@ class GNN_Inference_individual:
         
     def __init__(self, 
         graph_data_path: str,
+        graph_data_gene: str,
         config_path: str = "scripts/3.GeneticScores/configs/gnn_models_config.yaml",
         check_point_path: str = "results/gnn/full_input_model/model_checkpoints",
         results_dir: str = "results/gnn/cv_results"):
@@ -38,13 +39,15 @@ class GNN_Inference_individual:
         """
 
         self.graph_data_path = graph_data_path
+        self.graph_data_gene = graph_data_gene
         self.config_path = config_path
         self.check_point_path = check_point_path
         self.results_dir = results_dir
-        self.graph_data = torch.load(graph_data_path)
+        self.graph_data_dict = torch.load(graph_data_path)
+        self.graph_data_list, self.gene_dict = torch.load(graph_data_gene)
         self.config = yaml.safe_load(open(config_path))
 
-        self.patient_feat_dim, self.gene_feat_dim = self.get_input_dimensions(self.graph_data)
+        self.patient_feat_dim, self.gene_feat_dim = self.get_input_dimensions(self.graph_data_dict)
 
     def get_input_dimensions(self, graph_data: Dict[str, Any]) -> Tuple[int, int]:
         """
@@ -65,12 +68,20 @@ class GNN_Inference_individual:
         return patient_feat_dim, gene_feat_dim
 
 
-    def run_inference(self, model, reference_score: float):
+    def run_inference(self, model, gene: str):
+
+
+        ## Compute reference score
+        all_patients_list = Batch.from_data_list(self.graph_data_list)
+        all_predictions = model.predict(all_patients_list)
+        reference_score = np.median(all_predictions)
 
         predictions_list = []
-        # Cargar los datos de prueba para el fold actual
-        for patient in self.graph_data.keys():
-            patient_graph = self.graph_data[patient]
+        # Seleccionar pacientes con un gen
+        patients_idx = self.gene_dict[gene]
+        patients_id = [self.graph_data_list[i]['patient'].ID for i in patients_idx]
+        for patient in patients_id:
+            patient_graph = self.graph_data_dict[patient]
 
             test_graph = list(patient_graph.values())
             test_graph_keys = list(patient_graph.keys())
@@ -93,12 +104,13 @@ class GNN_Inference_individual:
                 pred_df = pd.DataFrame({
                     'ID': [test_graph_list['patient'].ID[0]], 
                     'Score': [predictions], 
-                    'Gene Combination': test_graph_keys
+                    'Gene_Combination': test_graph_keys,
+                    'Testing_Gene': gene
                 })
             else:
                 # Si hay múltiples grafos, incluir la combinación de genes
-                pred_df = pd.DataFrame(list(zip(test_graph_list['patient'].ID, predictions.squeeze(), test_graph_keys)), 
-                    columns=['ID', 'Score', 'Gene Combination'])
+                pred_df = pd.DataFrame(list(zip(test_graph_list['patient'].ID, predictions.squeeze(), test_graph_keys, [gene]*len(test_graph_keys))), 
+                    columns=['ID', 'Score', 'Gene_Combination', 'Testing_Gene'])
             predictions_list.append(pred_df)
         return predictions_list
 
@@ -113,13 +125,13 @@ def parse_arguments():
     
     parser.add_argument('--graph_data_path', type=str, required=True,
                         help='Path to the graph data file (.pt)')
+    parser.add_argument('--graph_gene_path', type=str, required=True,
+                        help='Path to the graph gene data file (.pt)')
     parser.add_argument('--config_path', type=str, 
                         default="scripts/3.GeneticScores/configs/gnn_models_config.yaml",
                         help='Path to the configuration file')
     parser.add_argument('--model_name', type=str, required=True,
                         help='Name of the GNN model to use for inference')
-    parser.add_argument('--reference_score', type=float, required=True,
-                        help='Reference score for normalization')
     parser.add_argument('--check_point_path', type=str,
                         default="results/gnn/full_input_model/model_checkpoints",
                         help='Path to the checkpoint directory')
@@ -134,23 +146,37 @@ def main():
 
     args = parse_arguments()
 
-    gnn_inference = GNN_Inference_individual(
+
+    gnn_gene = GNN_Inference_individual_per_gene(
         graph_data_path=args.graph_data_path,
+        graph_data_gene=args.graph_gene_path,
         config_path=args.config_path,
         check_point_path=args.check_point_path,
         results_dir=args.results_dir
     )
-    
-    model = instantiate_gnn_model(args.model_name, gnn_inference.config, 
-                                gnn_inference.patient_feat_dim, gnn_inference.gene_feat_dim, 
-                                args.check_point_path)
 
-    predictions_list = gnn_inference.run_inference(model, reference_score=args.reference_score)
-    # Combinar resultados de todos los folds
-    out_df = pd.concat(predictions_list, ignore_index=True)
+    pd_list = []
+    for gene in gnn_gene.gene_dict.keys():
+        try:
+            check_point = find_checkpoint_gene(
+                gene=gene,
+                model_name=args.model_name,
+                checkpoint_path=args.check_point_path
+            )
+        except FileNotFoundError as e:
+            print(f"Checkpoint not found for gene {gene}: {e}")
+            continue
+        model = instantiate_gnn_model(args.model_name, gnn_gene.config, 
+                                gnn_gene.patient_feat_dim, gnn_gene.gene_feat_dim, 
+                                check_point)
+        predictions_list = gnn_gene.run_inference(model, gene=gene)
+        gene_pd = pd.concat(predictions_list, ignore_index=True)
+        pd_list.append(gene_pd)
+    # Combinar resultados de todos los genes
+    out_df = pd.concat(pd_list, ignore_index=True)
     # Guardar resultados en el directorio de resultados
     os.makedirs(args.results_dir, exist_ok=True)
-    out_df.to_csv(f"{args.results_dir}/{args.model_name}_individual_gene_predictions.csv", index=False, sep = '\t')
+    out_df.to_csv(f"{args.results_dir}/{args.model_name}_individual_gene_predictions_per_gene.csv", index=False, sep = '\t')
 
 if __name__ == "__main__":
     sys.exit(main())

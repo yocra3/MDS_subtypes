@@ -62,6 +62,7 @@ class PatientGNNSAGE(L.LightningModule):
         ## Get data from the batch
         patient_x = batch['patient'].x
         gene_x = batch['gene'].x
+ 
         # Apply MLP to patient features
         patient_x = self.patient_mlp(patient_x)  # Shape: [1, hidden_dim]
         if (self.use_vaf):
