@@ -1,0 +1,285 @@
+# Configuración principal para MDS Risk Calculator
+# Aplicación web Bokeh para predicción de riesgo en síndrome mielodisplásico
+
+app:
+  name: "MDS Risk Calculator"
+  version: "1.0.0"
+  description: "Calculadora de riesgo para síndrome mielodisplásico usando modelos GNN y legacy"
+  
+  # Configuración del servidor Bokeh
+  server:
+    port: 5006
+    allow_websocket_origin: ["localhost:5006"]
+    num_procs: 1
+    
+  # Configuración de logging
+  logging:
+    level: "INFO"
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    file: "logs/mds_calculator.log"
+
+# Configuración de modelos de predicción
+models:
+  # Modelo GNN principal (PyTorch Lightning)
+  gnn:
+    enabled: true
+    model_class: "PatientGNNSAGE"
+    checkpoint_path: "results/gnn/full_input_model/model_checkpoints/fold_0/v1_boolean_fold_0-v1.ckpt"
+    
+    # Parámetros de arquitectura
+    architecture:
+      patient_feat_dim: 17    # Dimensión features clínicas procesadas
+      gene_feat_dim: 16       # Dimensión embeddings de genes
+      hidden_gene_dim: 32     # Dimensión oculta procesamiento genes
+      hidden_dim: 16          # Dimensión oculta general
+      out_dim: 1              # Salida: single risk score
+      
+
+    # Hiperparámetros
+    hyperparameters:
+      learning_rate: 0.001
+
+      
+  # Modelos legacy (para futuro desarrollo)
+  legacy:
+    ipss_m:
+      enabled: false
+      description: "Modelo IPSS-M clásico"
+      
+    clinical_only:
+      enabled: false
+      description: "Modelo basado solo en variables clínicas"
+
+# Configuración de datos y preprocesamiento
+data:
+  # Gene embeddings
+  gene_embeddings:
+    file_path: "results/preprocess/gene_embedding_reduced.tsv"
+    embedding_dim: 16
+    
+    # Lista de genes soportados
+    supported_genes:
+      - "TP53"
+      - "ASXL1"
+      - "SF3B1"
+      - "RUNX1"
+      - "TET2"
+      - "SRSF2"
+      - "DNMT3A"
+      - "U2AF1"
+      - "EZH2"
+      - "ZRSR2"
+      - "STAG2"
+      - "CBL"
+      - "IDH1"
+      - "BCOR"
+      - "ETV6"
+      - "NRAS"
+      - "KRAS"
+      - "NF1"
+      - "PTPN11"
+      - "JAK2"
+      
+  # Transformador de features clínicas
+  clinical_transformer:
+    file_path: "results/gnn/preprocess/full_input/fitted_transformers/preprocessing_pipeline.pkl"
+    
+    # Definición de features por tipo
+    features:
+      numeric:
+        - "AGE"
+        - "BM_BLAST"
+        - "WBC"
+        - "ANC"
+        - "HB"
+        - "PLT"
+        - "MONOCYTES"
+
+      categorical:
+        - "SEX"
+        - "CYTO_IPSSR"
+        - "complex"
+
+      binary:
+        - "plus8"
+        - "del7"
+        - "del20q"
+        - "del7q"
+        - "delY"
+        - "del5q"
+        
+
+# Validación de datos de entrada
+validation:
+  # Rangos válidos para variables clínicas
+  clinical_ranges:
+    AGE:
+      min: 0
+      max: 100
+      unit: "años"
+      
+    BM_BLAST:
+      min: 0.0
+      max: 100
+      unit: "%"
+      
+    WBC:
+      min: 0.0
+      max: 50.0
+      unit: "×10⁹/L"
+      
+    ANC:
+      min: 0.0
+      max: 20.0
+      unit: "×10⁹/L"
+      
+    HB:
+      min: 0.0
+      max: 20.0
+      unit: "g/dL"
+      
+    PLT:
+      min: 0.0
+      max: 2000.0
+      unit: "×10⁹/L"
+      
+    MONOCYTES:
+      min: 0.0
+      max: 10.0
+      unit: "×10⁹/L"
+      
+  # Valores categóricos válidos
+  categorical_values:
+    SEX: ["M", "F"]
+    CYTO_IPSSR: ["Very-Good", "Good", "Int", "Poor", "Very-Poor"]
+
+  # Configuración de advertencias
+  warnings:
+    extreme_values:
+      enabled: true
+      percentiles: [5, 95]  # Advertir si está fuera de estos percentiles
+      
+    missing_mutations:
+      enabled: true
+      message: "No se detectaron mutaciones. La predicción se basa solo en datos clínicos."
+
+# Categorización de riesgo (compatible con IPSS-M)
+risk_categories:
+  thresholds:
+    very_low: -1.5
+    low: -0.5
+    moderate_low: 0.0
+    moderate_high: 0.5
+    high: 1.5
+    # very_high: > 1.5
+    
+  labels:
+    very_low: "Muy Bajo"
+    low: "Bajo"  
+    moderate_low: "Moderado-Bajo"
+    moderate_high: "Moderado-Alto"
+    high: "Alto"
+    very_high: "Muy Alto"
+    
+  # Colores para visualización (CSS)
+  colors:
+    very_low: "#2E8B57"     # Verde oscuro
+    low: "#32CD32"          # Verde lima
+    moderate_low: "#FFD700" # Oro
+    moderate_high: "#FF8C00" # Naranja oscuro
+    high: "#FF4500"         # Rojo-naranja
+    very_high: "#8B0000"    # Rojo oscuro
+
+# Configuración de la interfaz de usuario
+ui:
+  # Título y metadata
+  title: "Calculadora de Riesgo MDS"
+  subtitle: "Predicción de riesgo usando modelos de aprendizaje automático"
+  
+  # Layout principal
+  layout:
+    sidebar_width: 400
+    main_width: 800
+    
+  # Configuración de widgets
+  widgets:
+    numeric_step: 0.1
+    slider_width: 300
+    button_height: 40
+    
+  # Mensajes de la interfaz
+  messages:
+    calculation_in_progress: "Calculando predicción de riesgo..."
+    calculation_complete: "Cálculo completado"
+    validation_error: "Error en validación de datos"
+    model_error: "Error en predicción del modelo"
+    
+  # Configuración de gráficos
+  plots:
+    height: 400
+    width: 600
+    toolbar_location: "above"
+
+# Configuración de archivos y directorios
+paths:
+  # Directorios principales
+  models_dir: "models/"
+  data_dir: "data/"
+  logs_dir: "logs/"
+  static_dir: "static/"
+  
+  # Configuración de backup
+  backup:
+    enabled: false
+    directory: "backup/"
+    frequency: "daily"
+
+# Configuración de desarrollo y testing
+development:
+  debug_mode: false
+  mock_data: false
+  
+  # Configuración para testing
+  testing:
+    use_dummy_embeddings: true
+    dummy_embedding_dim: 16
+    mock_transformer: true
+    
+  # Configuración de profiling
+  profiling:
+    enabled: false
+    output_file: "logs/profiling.log"
+
+# Configuración de seguridad
+security:
+  # Rate limiting
+  rate_limiting:
+    enabled: false
+    max_requests_per_minute: 60
+    
+  # Input sanitization
+  input_validation:
+    strict_mode: true
+    sanitize_strings: true
+    
+  # CORS (si es necesario)
+  cors:
+    enabled: false
+    allowed_origins: ["http://localhost:6006"]
+
+# Metadata del proyecto
+metadata:
+  authors: ["MDS Research Team"]
+  institution: "Instituto de Investigación MDS"
+  last_updated: "2025-01-01"
+  data_version: "v1.0"
+  model_version: "v1.0"
+  
+  # Referencias
+  references:
+    ipss_m_paper: "https://doi.org/10.1182/blood.2022016654"
+    gnn_methodology: "Graph Neural Networks for Medical Risk Prediction"
+    
+  # Licencia y uso
+  license: "Academic Use Only"
+  usage_restrictions: "Solo para uso académico y de investigación"

@@ -26,3 +26,9 @@ RUN pip3 install optuna optuna-integration[pytorch_lightning] plotly
 
 # Install pytest to test Claude
 RUN pip3 install pytest
+
+# Install bokeh to generate interactive plots (1.7)
+RUN pip3 install bokeh
+
+# Make port 5006 available to the world outside this container
+EXPOSE 5006
