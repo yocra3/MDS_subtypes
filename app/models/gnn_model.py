@@ -213,7 +213,7 @@ class MDSGNNModel(BaseModel):
             # 4. Procesar resultados
             risk_category = self.get_risk_category(score)
             #risk_probability = self._score_to_probability(raw_score)
-            #hazard_ratio = self._score_to_hazard_ratio(raw_score)
+            hazard_ratio = self._score_to_hazard_ratio(score)
             #confidence = self._calculate_confidence(patient_data, raw_score)
             
             processing_time = time.time() - start_time
@@ -221,6 +221,7 @@ class MDSGNNModel(BaseModel):
             return RiskPrediction(
                 raw_score=float(score),
                 risk_category=risk_category,
+                hazard_ratio = hazard_ratio,
                 model_version=self.get_model_info()['version'],
                 processing_time=processing_time,
                 warnings=validation.warnings
@@ -368,7 +369,7 @@ class MDSGNNModel(BaseModel):
         """Convierte score a hazard ratio."""
         # Aproximación: HR = exp(score)
         # En implementación real, usar coeficientes calibrados
-        return float(np.exp(raw_score))
+        return float(2**(raw_score))
     
     def _calculate_confidence(self, patient_data: PatientData, raw_score: float) -> float:
         """Calcula confianza en la predicción."""
@@ -395,28 +396,7 @@ class MDSGNNModel(BaseModel):
             'description': 'Graph Neural Network for MDS risk prediction'
         }
     
-    # Métodos para desarrollo y testing
-    def _create_mock_model(self):
-        """Crea modelo mock para desarrollo."""
-        class MockGNNModel:
-            def predict(self, patient_graph):
-                # Predicción mock basada en número de mutaciones
-                n_mutations = patient_graph['gene'].x.shape[0]
-                return np.array([0.1 * n_mutations - 0.5])
-            
-            def __call__(self, patient_graph):
-                return float(self.predict(patient_graph))
-        
-        return MockGNNModel()
-    
-    def _create_mock_transformer(self):
-        """Crea transformer mock para desarrollo."""
-        class MockTransformer:
-            def transform(self, X):
-                # Transformación mock que normaliza valores
-                return np.random.randn(X.shape[0], 20)  # 20 features
-        
-        return MockTransformer()
+
 
 
 # Función de conveniencia para cargar modelo

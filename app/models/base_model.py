@@ -55,7 +55,7 @@ class RiskPrediction:
     raw_score: float         # Score numérico del modelo
     risk_category: str       # 'Very Low', 'Low', 'Moderate Low', 'Moderate High', 'High', 'Very High'
     #risk_probability: float  # Probabilidad interpretable (0-1)
-    #hazard_ratio: float      # Hazard ratio vs paciente promedio
+    hazard_ratio: float      # Hazard ratio vs paciente promedio
     model_version: str       # Versión/nombre del modelo usado
     #confidence: float        # Confianza en la predicción (0-1)
     

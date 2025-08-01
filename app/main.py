@@ -10,6 +10,7 @@ import time
 import yaml
 from pathlib import Path
 from typing import Dict, Any, Optional
+import pandas as pd
 
 from bokeh.application import Application
 from bokeh.application.handlers import FunctionHandler
@@ -27,6 +28,7 @@ from models.base_model import PatientData, create_empty_patient_data
 from utils.graph_builder import GraphBuilder
 from ui.widgets import WidgetFactory
 from ui.layout_builder import create_layout
+from utils.gene_importance import GeneImportanceEvaluator
 
 # Configuración de logging
 logging.basicConfig(
@@ -286,10 +288,7 @@ class MDSCalculatorApp:
         self.widgets['risk_category'].text = (
             f"<h3 style='color: {category_color}'>Categoría: {category_label}</h3>"
         )
-        
-        #self.widgets['hazard_ratio'].text = f"<h3>Hazard Ratio: {prediction.hazard_ratio:.2f}</h3>"
-        
-        # Actualizar detalles
+                # Actualizar detalles
         details_text = f"""Detalles de la Predicción:
 
 Score de Riesgo: {prediction.raw_score:.4f}
@@ -304,12 +303,11 @@ Datos del Paciente:
 - WBC: {self.current_patient_data.WBC} ×10⁹/L
 - Mutaciones: {', '.join(self.current_patient_data.mutations) if self.current_patient_data.mutations else 'Ninguna'}
 """
-        
         if prediction.warnings:
             details_text += f"\nAdvertencias:\n" + "\n".join(f"- {w}" for w in prediction.warnings)
             
-        self.widgets['prediction_details'].text = details_text
-        
+        self.widgets['hazard_ratio'].text = f"<h3>Hazard Ratio: {prediction.hazard_ratio:.3f}</h3>"
+
         # Actualizar gráfico simple
         self._update_risk_plot(prediction)
     
@@ -320,26 +318,152 @@ Datos del Paciente:
         
         # Crear histograma simple de ejemplo
         import numpy as np
-        
+        from scipy.stats import gaussian_kde
+
         # Generar datos de ejemplo para distribución
-        x_vals = np.linspace(-3, 3, 100)
-        y_vals = np.exp(-0.5 * x_vals**2) / np.sqrt(2 * np.pi)  # Distribución normal
-        
-        # Agregar línea de distribución
-        self.widgets['risk_plot'].line(x_vals, y_vals, line_width=2, color='blue', alpha=0.7)
-        
-        # Marcar posición del paciente
-        patient_y = np.exp(-0.5 * prediction.raw_score**2) / np.sqrt(2 * np.pi)
-        self.widgets['risk_plot'].circle(
-            [prediction.raw_score], [patient_y], 
-            size=15, color='red', alpha=0.8
-        )
-        
-        # Configurar labels
-        self.widgets['risk_plot'].xaxis.axis_label = "Score de Riesgo"
-        self.widgets['risk_plot'].yaxis.axis_label = "Densidad"
-        self.widgets['risk_plot'].title.text = f"Posición del Paciente (Score: {prediction.raw_score:.3f})"
+        cohort_scores = self._load_cohort_scores()
+
+        gene_evaluator = GeneImportanceEvaluator(self.gnn_model)
+        shap_dict = gene_evaluator.evaluate_gene_importance(self.current_patient_data, self.gnn_model.gene_embeddings)
+        shap_values = shap_dict.get('shap_values', {})
+        base_score = shap_dict.get('base', {})
+        if cohort_scores:
+            # Crear histograma con los datos reales
+            kde = gaussian_kde(cohort_scores)
+            
+            # Generar puntos suaves para la curva
+            x_min, x_max = min(cohort_scores), max(cohort_scores)
+            x_range = x_max - x_min
+            x_vals = np.linspace(x_min - 0.1 * x_range, x_max + 0.1 * x_range, 200)
+            y_vals = kde(x_vals)
+            max_y = max(y_vals)
+                
+            # Dibujar histograma como línea
+            self.widgets['risk_plot'].line(x_vals, y_vals, line_width=2, color='black', alpha=0.7)
+
+            # Añadir líneas verticales para categorías de riesgo
+            if 'risk_categories' in self.config and 'thresholds' in self.config['risk_categories']:
+                thresholds = self.config['risk_categories']['thresholds']
+                colors = self.config['risk_categories'].get('colors', {})
+                labels = self.config['risk_categories'].get('labels_short', {})
+                
+                prev_threshold = x_min - 0.05 * x_range
+                for category, threshold in thresholds.items():
+
+                    if isinstance(threshold, (int, float)) and x_min <= threshold <= x_max:
+                        # Color específico para cada categoría
+                        segment_color = line_color = colors.get(category, '#666666')
+
+                        ## Colorear segmento de la curva
+                        mask = (x_vals >= prev_threshold) & (x_vals <= threshold)
+                        x_segment = x_vals[mask]
+                        y_segment = y_vals[mask]
+                        x_fill = np.concatenate([x_segment, x_segment[::-1]])
+                        y_fill = np.concatenate([y_segment, np.zeros_like(y_segment)])
+                        
+                        self.widgets['risk_plot'].patch(
+                            x_fill, y_fill,
+                            alpha=0.3, color=segment_color
+                        )
+
+                        # Añadir linea vertical
+                        line_y = kde(threshold)[0]
+
+                        if category != "very_high":
+                            # Línea vertical
+                            self.widgets['risk_plot'].line(
+                                [threshold, threshold], [0, line_y],
+                                line_width=2, color=line_color, alpha=0.8, line_dash='solid'
+                            )
+                        segment_center = np.mean([prev_threshold, threshold])
+                        # Etiqueta de la categoría
+                        category_label = labels.get(category, category)
+                        self.widgets['risk_plot'].text(
+                            x=[segment_center], y=[max_y], 
+                            text=[category_label],
+                            text_font_size="9pt", text_align="center",
+                            text_color=line_color
+                        )
+                        prev_threshold = threshold                
+            # Marcar posición del paciente
+            patient_score = prediction.raw_score
+            # Encontrar altura aproximada en la distribución
+            patient_y = kde(patient_score)[0]  # Altura en la curva de densidad
+                
+            self.widgets['risk_plot'].circle(
+                [patient_score], [patient_y], 
+                size=15, color='red', alpha=0.8
+            )
+
+            if len(shap_values) > 0:
+                ## Ordenar diccionario de SHAP
+                shap_values_sorted = dict(sorted(shap_values.items(), key=lambda item: item[1], reverse=True))
+
+                base_y = kde(base_score)[0]
+                self.widgets['risk_plot'].circle(
+                    [base_score], [base_y], 
+                    size=15, color='grey', alpha=0.8
+                )
+                self.widgets['risk_plot'].text(
+                        x=[base_score], y=[base_y + 0.02], 
+                        text=["Base"],
+                        text_font_size="9pt", text_align="center",
+                        text_color='black'
+                    )
+                gene_value = base_score
+                for gene, value in shap_values_sorted.items():
+                    gene_value += value
+                    gene_y = kde(gene_value)[0]
+                    self.widgets['risk_plot'].circle(
+                        [gene_value], [gene_y], 
+                        size=15, color='pink', alpha=0.8
+                    )
+                    self.widgets['risk_plot'].text(
+                        x=[gene_value], y=[gene_y + 0.02], 
+                        text=[gene],
+                        text_font_size="9pt", text_align="center",
+                        text_color='black'
+                    )
+
+
+            # Calcular percentil del paciente
+            percentile = (np.sum(np.array(cohort_scores) <= patient_score) / len(cohort_scores)) * 100
+                
+            # Configurar labels
+            self.widgets['risk_plot'].xaxis.axis_label = "Score de Riesgo"
+            self.widgets['risk_plot'].yaxis.axis_label = ""
+            self.widgets['risk_plot'].title.text = f"Percentil {percentile:.1f}%"
+            
+            # Configurar rangos del gráfico
+            self.widgets['risk_plot'].x_range.start = x_min - 0.05 * x_range
+            self.widgets['risk_plot'].x_range.end = x_max + 0.05 * x_range
+            self.widgets['risk_plot'].y_range.start = 0
+            self.widgets['risk_plot'].y_range.end = max_y * 1.2  # Espacio para etiquetas
+
+        else:
+            # Fallback si no hay datos
+            self.widgets['risk_plot'].text(
+                x=0, y=0.5, text=["No hay datos de cohorte disponibles"], 
+                text_font_size="12pt", text_align="center"
+            )
     
+    def _load_cohort_scores(self) -> list:
+        """Carga los scores reales de la cohorte desde archivo."""
+        try:
+            scores_file = Path(self.config["risk_categories"]["risk_distribution"]["file_path"])
+            if scores_file.exists():
+                with open(scores_file, 'r') as f:
+                    data = pd.read_csv(scores_file, sep='\t')
+                    return data['Score'].tolist()
+            else:
+                logger.warning("Archivo de scores de cohorte no encontrado")
+                return []
+                
+        except Exception as e:
+            logger.error(f"Error cargando scores de cohorte: {e}")
+            return []
+
+
     def _show_error(self, message: str):
         """Muestra mensaje de error en la interfaz."""
         self.widgets['status_message'].text = f"ERROR: {message}"

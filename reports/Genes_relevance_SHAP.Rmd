@@ -1,0 +1,903 @@
+---
+title: "Análisis de Relevancia de Genes usando Valores SHAP"
+author: "Carlos Ruiz"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::downcute:
+    toc_depth: 3
+    downcute_theme: "default"
+    lightbox: true
+    thumbnails: true
+    gallery: true
+    use_bookdown: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Preparación de entorno
+
+## Carga de librerías
+
+```{r}
+library(tidyverse)
+library(stringr)
+library(ggpubr)
+library(DT)
+library(rmdformats)
+library(matrixStats)
+library(survival)
+library(pheatmap)
+```
+
+## Carga de datos
+
+```{r}
+scores <- read_table("../results/gnn/full_input_model/v1_boolean/v1_boolean_individual_gene_predictions.csv") %>%
+  select(-Combination)
+scores_per_gene <- read_table("../results/gnn/full_input_model/v1_boolean/v1_boolean_individual_gene_predictions_per_gene.csv")
+
+load("../results/preprocess/clinical_preproc.Rdata")
+load("../results/gnn/v1_boolean_gene_SHAP.Rdata")
+```
+
+```{r}
+base <- subset(scores, Gene == "base")
+
+scores_mode <- scores %>%
+  group_by(ID) %>%
+  mutate(score_diff = Score - Score[Gene == "base"]) %>%
+  ungroup() %>%
+  mutate(n_genes = str_count(Gene, "_") + 1)
+
+# Definir puntuaciones normalizadas
+final_scores <- scores_mode %>% 
+  group_by(ID) %>% 
+  filter(n_genes == max(n_genes)) %>%
+  mutate(nrow = n()) %>%
+  filter(!(Gene == "base" & nrow == 2)) %>%
+  select(ID, Score)
+```
+
+# Exploración de los datos
+
+## Distribución puntuaciones GNN
+
+```{r}
+hist(final_scores$Score, main = "Distribución de puntuaciones finales", xlab = "Score")
+```
+
+# Comparativa general
+
+
+```{r}
+IPSSM_genes <- c("TP53", "MLL", "FLT3", "SF3B1", "NPM1", "RUNX1", "NRAS", "ETV6",
+                 "IDH2", "CBL", "EZH2", "U2AF1", "SRSF2", "DNMT3A", "ASXL1", 
+                 "KRAS", "BCOR", "BCORL1", "CEBPA", "ETNK1", "GATA2", "GNB1", 
+                 "IDH1", "NF1", "PHF6", "PPM1D", "PRPF8", "PTPN11", "SETBP1", 
+                 "STAG2", "WT1")
+
+gene_tab <- shaps %>% group_by(Gene) %>%
+  summarize(n = n()) %>%
+  mutate(IPSSM = ifelse(Gene %in% IPSSM_genes, "IPSSM", "Other"),
+         Frequency = ifelse(n < 10, "10-", "10+"))
+
+gene_order <-  shaps %>% 
+  group_by(Gene) %>% 
+  summarize(m = median(SHAP)) %>% 
+  arrange(desc(m)) %>% 
+  pull(Gene)
+```
+
+## Importancia en modelo completo
+```{r, fig.width=12, fig.height=10}
+shaps %>%
+  left_join(gene_tab, by = "Gene")  %>%
+  mutate(Gene = factor(Gene, levels = gene_order)) %>%
+  ggplot(aes(x = Gene, y = SHAP, fill = IPSSM)) +
+  geom_boxplot() +
+  labs(title = "Valores SHAP por Gen", y = "Valor SHAP", x = "Gen") +
+  theme_bw() +
+  facet_wrap(Frequency ~ ., scales = "free_x", nrow = 2) +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+shaps %>% 
+  group_by(Gene) %>% 
+  summarize(m = median(SHAP)) %>% 
+  arrange(desc(m)) %>% 
+  ungroup() %>%
+  top_n(10) %>%
+  knitr::kable(caption = "Top 10 genes con mayor valor SHAP")
+
+shaps %>% 
+  group_by(Gene) %>% 
+  summarize(m = median(SHAP)) %>% 
+  arrange(m) %>% 
+  top_n(10) %>%
+  knitr::kable(caption = "Top 10 genes con menor valor SHAP")
+```
+
+
+## Análisis de efectos de interacción
+
+```{r}
+scores_mode2 <- scores_mode %>%
+  filter(n_genes > 1) %>%
+  rowwise() %>%
+  mutate(
+    genes_split = str_split(Gene, "_")[1],
+    score_diff_ind_genes = sum(single_genes$score_diff[
+      single_genes$ID == ID & single_genes$Gene %in% genes_split
+    ], na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  select(-genes_split) %>%
+  mutate(inter_effect = score_diff - score_diff_ind_genes)
+```
+
+```{r, fig.width=10, fig.height=6}
+ggplot(scores_mode2, aes(x = factor(n_genes), y = inter_effect)) +
+  geom_boxplot() +
+  labs(title = "Efecto de interacción SHAP por número de genes", y = "Efecto de interacción", x = "Número de genes") +
+  theme_bw()
+```
+
+### Análisis contextual de genes específicos
+
+Para este análisis más detallado, necesitamos cargar los datos de MAF (Mutation Annotation Format) y definir funciones auxiliares.
+
+```{r}
+# Cargar datos MAF si están disponibles
+maf <- read_delim("../data/IPSSMol/maf.tsv")
+# Función para determinar si una mutación es principal
+isMain <- function(gene, pat, maf) {
+  patient <- subset(maf, ID == pat)
+  max_vaf <- max(patient$VAF, na.rm = TRUE)
+  gene_maf <- max(subset(patient, GENE == gene)$VAF)
+  return (gene_maf + 0.1 > max_vaf)
+}
+
+# Preparar datos con contexto clínico
+shap_patient <- left_join(shaps,
+  clinical %>% select(ID, any_of(IPSSM_genes), TP53multi, TP53mono, 
+    TET2bi, TET2other, N_mutations, complex, del5q, plus8, del20q, del7, del7q, delY,
+    CYTO_IPSSR), by = "ID")
+```
+
+### Análisis de TET2
+
+```{r}
+tet2_f <- shap_patient %>%
+  filter(Gene == "TET2") %>%
+  mutate(HR = 2**SHAP,
+    TET2_Status = ifelse(TET2bi == 1, "Bi-allelic", "Mono-allelic"),
+    Context = ifelse(SF3B1 == 1, "TET2 + SF3B1", 
+      ifelse(RUNX1 == 1, "TET2 + RUNX1", 
+        ifelse(CBL == 1, "TET2 + CBL", 
+        ifelse(SRSF2 == 1, "TET2 + SRSF2", 
+            ifelse(complex == 1, "TET2 + complex", 
+              ifelse(del7 == 1 | del7q == 1, "TET2 + del7/del7q", 
+                    ifelse(N_mutations == 1, "Only TET2", 
+                      ifelse(N_mutations == 2, "TET2 and 1 mut.", "TET2 and 2+ mut.")))))))))
+```
+
+```{r, fig.width=12, fig.height=8}
+ggplot(tet2_f, aes(x = Context, y = HR)) +
+  geom_boxplot() +
+  labs(title = "HR para TET2", y = "HR", x = "Contexto") +
+  theme_bw() +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "red") +
+  facet_wrap(~ TET2_Status) +
+  scale_y_log10() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+### Análisis de ASXL1
+
+```{r}
+asxl1_f <- shap_patient %>%
+  filter(Gene == "ASXL1") %>%
+  mutate(HR = 2**SHAP,
+    Context = ifelse(TP53 == 1, "ASXL1 + TP53",
+      ifelse(SF3B1 == 1, "ASXL1 + SF3B1",
+        ifelse(RUNX1 == 1, "ASXL1 + RUNX1",
+          ifelse(CBL == 1, "ASXL1 + CBL",
+          ifelse(U2AF1 == 1, "ASXL1 + U2AF1",
+            ifelse(SRSF2 == 1, "ASXL1 + SRSF2",
+              ifelse(DNMT3A == 1, "ASXL1 + DNMT3A",
+              ifelse(ETNK1 == 1, "ASXL1 + ETNK1",
+                ifelse(PHF6 == 1, "ASXL1 + PHF6",
+                  ifelse(PTPN11 == 1, "ASXL1 + PTPN11",
+                    ifelse(STAG2 == 1, "ASXL1 + STAG2",
+                      ifelse(del5q == 1, "ASXL1 + del5q",
+                        ifelse(del7 == 1, "ASXL1 + del7",
+                          ifelse(delY == 1, "ASXL1 + delY",
+                ifelse(N_mutations == 1, "Only ASXL1", 
+                  ifelse(N_mutations == 2, "ASXL1 and 1 mut.", "ASXL1 and 2+ mut.")))))))))))))))))
+```
+
+```{r, fig.width=14, fig.height=8}
+ggplot(asxl1_f, aes(x = Context, y = HR)) +
+  geom_boxplot() +
+  labs(title = "HR para ASXL1", y = "HR", x = "Contexto") +
+  theme_bw() +
+  scale_y_log10() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ ASXL1*RUNX1,  data = clinical)
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ ASXL1*del7,  data = clinical)
+```
+
+### Análisis de SF3B1
+
+```{r}
+sf3b1_f <- shap_patient %>%
+  filter(Gene == "SF3B1") %>%
+  mutate(HR = 2**SHAP,
+    Context = ifelse(TP53 == 1, "SF3B1 + TP53",
+      ifelse(PPM1D == 1, "SF3B1 + PPM1D",
+          ifelse(STAG2 == 1, "SF3B1 + STAG2",
+                ifelse(del5q == 1, "SF3B1 + del5q",
+                  ifelse(N_mutations == 1, "Only SF3B1",
+                    ifelse(N_mutations == 2, "SF3B1 and 1 mut.", "SF3B1 and 2+ mut.")))))))
+```
+
+```{r, fig.width=12, fig.height=8}
+ggplot(sf3b1_f, aes(x = Context, y = HR)) +
+  geom_boxplot() +
+  labs(title = "HR para SF3B1", y = "HR", x = "Contexto") +
+  theme_bw() +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "red") +
+  scale_y_log10() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ SF3B1*del5q,  data = clinical)
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ SF3B1*TP53,  data = clinical)
+```
+
+### Análisis de DNMT3A
+
+```{r}
+dnmt3a_f <- shap_patient %>%
+  filter(Gene == "DNMT3A") %>%
+  mutate(HR = 2**SHAP,
+    Context = ifelse(TP53 == 1, "DNMT3A + TP53",
+      ifelse(SF3B1 == 1, "DNMT3A + SF3B1",
+        ifelse(CBL == 1, "DNMT3A + CBL",
+          ifelse(U2AF1 == 1, "DNMT3A + U2AF1",
+            ifelse(CEBPA == 1, "DNMT3A + CEBPA",
+              ifelse(GNB1 == 1, "DNMT3A + GNB1",
+                ifelse(NF1 == 1, "DNMT3A + NF1",
+          ifelse(N_mutations == 1, "Only DNMT3A",
+            ifelse(N_mutations == 2, "DNMT3A and 1 mut.", "DNMT3A and 2+ mut."))))))))))
+```
+
+```{r, fig.width=14, fig.height=8}
+ggplot(dnmt3a_f, aes(x = Context, y = HR)) +
+  geom_boxplot() +
+  labs(title = "HR para DNMT3A", y = "HR", x = "Contexto") +
+  theme_bw() +
+  scale_y_log10() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ DNMT3A*U2AF1,  data = clinical)
+```
+
+### Análisis de SRSF2
+
+```{r}
+srsf2_f <- shap_patient %>%
+  filter(Gene == "SRSF2") %>%
+  mutate(HR = 2**SHAP,
+    Context = case_when(
+      RUNX1 == 1 ~ "SRSF2 + RUNX1",
+      ASXL1 == 1 ~ "SRSF2 + ASXL1",
+      IDH1 == 1 ~ "SRSF2 + IDH1",
+      TET2bi == 1 ~ "SRSF2 + TET2 bi",
+      TET2other == 1 ~ "SRSF2 + TET2 mono",
+      N_mutations == 1 ~ "Only SRSF2",
+      N_mutations == 2 ~ "SRSF2 and 1 mut.",
+      TRUE ~ "SRSF2 and 2+ mut."
+    ))
+```
+
+```{r, fig.width=12, fig.height=8}
+ggplot(srsf2_f, aes(x = Context, y = HR)) +
+  geom_boxplot() +
+  labs(title = "HR para SRSF2", y = "HR", x = "Contexto") +
+  theme_bw() +
+  scale_y_log10() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ SRSF2*ASXL1,  data = clinical)
+```
+
+### Análisis de RUNX1
+
+```{r}
+runx1_f <- shap_patient %>%
+  filter(Gene == "RUNX1") %>%
+  mutate(HR = 2**SHAP,
+    Context = case_when(
+      EZH2 == 1 ~ "RUNX1 + EZH2",
+      U2AF1 == 1 ~ "RUNX1 + U2AF1",
+      IDH1 == 1 ~ "RUNX1 + IDH1",
+      SETBP1 == 1 ~ "RUNX1 + SETBP1",
+      N_mutations == 1 ~ "Only RUNX1",
+      N_mutations == 2 ~ "RUNX1 and 1 mut.",
+      TRUE ~ "RUNX1 and 2+ mut."
+    ))
+```
+
+```{r, fig.width=12, fig.height=8}
+ggplot(runx1_f, aes(x = Context, y = HR)) +
+  geom_boxplot() +
+  labs(title = "HR para RUNX1", y = "HR", x = "Contexto") +
+  theme_bw() +
+  scale_y_log10() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r, fig.width=12, fig.height=8}
+ggplot(runx1_f, aes(x = CYTO_IPSSR, y = HR)) +
+  geom_boxplot() +
+  labs(title = "HR para RUNX1 por cariotipo IPSS-R", y = "HR", x = "Cariotipo IPSS-R") +
+  theme_bw() +
+  scale_y_log10() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ RUNX1*U2AF1,  data = clinical)
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ RUNX1*EZH2,  data = clinical)
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ RUNX1*CYTO_IPSSR,  data = clinical)
+```
+
+### Análisis de TP53
+
+```{r}
+tp53_f <- shap_patient %>%
+  filter(Gene == "TP53") %>%
+  mutate(HR = 2**SHAP,
+    TP53_Status = ifelse(TP53multi == 1, "Multi-allelic", ifelse(TP53mono == 1, "Mono-allelic", "Other")),
+    Context = case_when(
+      complex == 1 ~ "TP53 + complex",
+      del7 == 1 | del7q == 1 ~ "TP53 + del7/del7q",
+      N_mutations == 1 ~ "Only TP53",
+      N_mutations == 2 ~ "TP53 and 1 mut.",
+      TRUE ~ "TP53 and 2+ mut."
+    ))
+```
+
+```{r, fig.width=12, fig.height=8}
+ggplot(tp53_f, aes(x = Context, y = HR)) +
+  geom_boxplot() +
+  labs(title = "HR para TP53", y = "HR", x = "Contexto") +
+  theme_bw() +
+  facet_wrap(~ TP53_Status) +
+  scale_y_log10() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r, fig.width=12, fig.height=8}
+ggplot(tp53_f, aes(x = CYTO_IPSSR, y = HR)) +
+  geom_boxplot() +
+  labs(title = "HR para TP53 por cariotipo IPSS-R", y = "HR", x = "Cariotipo IPSS-R") +
+  theme_bw() +
+  scale_y_log10() +
+  facet_wrap(~ TP53_Status) +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+### Análisis de STAG2
+
+```{r}
+stag2_f <- shap_patient %>%
+  filter(Gene == "STAG2") %>%
+  mutate(HR = 2**SHAP,
+    Context = case_when(
+      RUNX1 == 1 ~ "STAG2 + RUNX1",
+      NRAS == 1 ~ "STAG2 + NRAS",
+      U2AF1 == 1 ~ "STAG2 + U2AF1",
+      ASXL1 == 1 ~ "STAG2 + ASXL1",
+      BCOR == 1 ~ "STAG2 + BCOR",
+      CEBPA == 1 ~ "STAG2 + CEBPA",
+      PRPF8 == 1 ~ "STAG2 + PRPF8",
+      N_mutations == 1 ~ "Only STAG2",
+      N_mutations == 2 ~ "STAG2 and 1 mut.",
+      TRUE ~ "STAG2 and 2+ mut."
+    ))
+```
+
+```{r, fig.width=12, fig.height=8}
+ggplot(stag2_f, aes(x = Context, y = HR)) +
+  geom_boxplot() +
+  labs(title = "HR para STAG2", y = "HR", x = "Contexto") +
+  theme_bw() +
+  scale_y_log10() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ STAG2*RUNX1,  data = clinical)
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ STAG2*NRAS,  data = clinical)
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ STAG2*U2AF1,  data = clinical)
+```
+
+### Análisis de U2AF1
+
+```{r}
+u2af1_f <- shap_patient %>%
+  filter(Gene == "U2AF1") %>%
+  mutate(HR = 2**SHAP,
+    Context = case_when(
+      KRAS == 1 ~ "U2AF1 + KRAS",
+      PTPN11 == 1 ~ "U2AF1 + PTPN11",
+      del5q == 1 ~ "U2AF1 + del5q",
+      N_mutations == 1 ~ "Only U2AF1",
+      N_mutations == 2 ~ "U2AF1 and 1 mut.",
+      N_mutations == 3 ~ "U2AF1 and 2 mut.",
+      TRUE ~ "U2AF1 and 3+ mut."
+    ))
+```
+
+```{r, fig.width=12, fig.height=8}
+ggplot(u2af1_f, aes(x = Context, y = HR)) +
+  geom_boxplot() +
+  labs(title = "HR para U2AF1", y = "HR", x = "Contexto") +
+  theme_bw() +
+  scale_y_log10() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r}
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ U2AF1*del5q,  data = clinical)
+```
+
+
+# Comparativa con modelo sin gen
+
+## Evaluación general
+```{r, fig.width=12, fig.height=8}
+ggplot(comb_shap, aes(x = Gene, y = SHAP_diff)) +
+  geom_boxplot() +
+  labs(title = "Diferencias de valores SHAP por Gen", y = "Diferencia SHAP", x = "Gen") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+```{r, fig.width=12, fig.height=10}
+filter(shaps_per_gene, Gene == Testing_Gene) %>%
+  left_join(gene_tab, by = "Gene")  %>%
+  mutate(Gene = factor(Gene, levels = gene_order)) %>%
+  ggplot(aes(x = Gene, y = SHAP, fill = IPSSM)) +
+  geom_boxplot() +
+  labs(title = "Valores SHAP por Gen (modelo individual)", y = "Valor SHAP", x = "Gen") +
+  theme_bw() +
+  facet_wrap(Frequency ~ ., scales = "free_x", nrow = 2) +
+  theme(axis.text.x = element_text(angle = 90))
+```
+
+
+```{r, fig.width=20, fig.height=20}
+comb_shap_sum <- comb_shap %>%
+  group_by(Testing_Gene) %>%
+  summarize(median_diff = median(SHAP_diff, na.rm = TRUE),
+        SHAP_cor = cor(SHAP_gene, SHAP_full, use = "complete.obs")) %>%
+  arrange(desc(SHAP_cor))
+
+
+comb_shap %>%
+  mutate(Testing_Gene = factor(Testing_Gene, levels = comb_shap_sum$Testing_Gene)) %>%
+  ggplot(aes(x = SHAP_gene, y = SHAP_full)) +
+  geom_point() +
+  labs(title = "SHAP Value Differences by Gene", y = "SHAP Full", x = "SHAP Gene") +
+  theme_bw() +
+  facet_wrap(~ Testing_Gene, scales = "free") +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  stat_cor(method = "pearson", label.x.npc = "left", label.y.npc = "top")
+```
+
+## Exploración de embeddings
+
+```{r}
+reduced_embeddings <- read_delim("../results/preprocess/gene_embedding_reduced.tsv", delim = "\t")
+
+emb_mat <- as.matrix(reduced_embeddings[, -1])
+rownames(emb_mat) <- unlist(reduced_embeddings[, 1])
+
+filt_mat <- emb_mat[rownames(emb_mat) %in% shaps_per_gene$Gene, ]
+```
+
+````{r, fig.width=12, fig.height=20}
+pheatmap(filt_mat)
+```
+
+Una explicación de los pobres resultados de algunos genes puede estar en los embeddings. Genes de la misma familia (como NRAS y KRAS, U2AF1 y U2AF2 o los DDXs) tienen embeddings muy similares. No obstante, genes que tienen un papel similar, como SRSF2 y ZRSR2 tienen embeddings diferentes. 
+
+
+## TP53
+
+```{r}
+comb_shap_patient <- left_join(comb_shap,
+  clinical %>% select(ID, any_of(IPSSM_genes), TP53multi, TP53mono, 
+    TET2bi, TET2other, N_mutations, complex, del5q, plus8, del20q, del7, del7q, delY,
+    CYTO_IPSSR), by = "ID")
+
+tp53 <- filter(comb_shap_patient, Gene == "TP53")   %>%
+  mutate(TP53_Status = ifelse(TP53multi == 1, "Multi", ifelse(TP53mono == 1, "Mono", "Other")),
+        Mutation_status = 
+        ifelse(del7 == 1, "TP53 + del7",
+          ifelse(del7q == 1, "TP53 + del7q",
+          ifelse(ASXL1 == 1, "TP53 + ASXL1",
+                    ifelse(N_mutations == 1, "Only TP53",
+                    ifelse(N_mutations == 2, "TP53 and 1 mut.",  "TP53 and 2+ mut."))))),
+        Mutation_status = factor(Mutation_status, levels = c("Only TP53",  "TP53 + del7", 
+        "TP53 + del7q", "TP53 + ASXL1", "TP53 and 1 mut.", 
+        "TP53 and 2+ mut."))
+  )
+```
+
+
+
+```{r, fig.width=12, fig.height=8}
+tp53 %>%
+ ggplot(aes(x = SHAP_gene, y = SHAP_full, color = Mutation_status)) +
+  geom_point() +
+  labs(title = "Diferencias de valores SHAP para TP53", y = "SHAP Completo", x = "SHAP Gen") +
+  stat_cor(method = "pearson", label.x.npc = "left", label.y.npc = "bottom") +
+  facet_grid( ~ TP53_Status, scales = "free") +
+  theme_bw()
+```
+
+```{r}
+table(tp53$TP53_Status, tp53$Mutation_status)
+```
+```{r, fig.width=12, fig.height=8}
+tp53 %>%
+  ggplot(aes(x = SHAP_gene, y = SHAP_full, color = complex)) +
+  geom_point() +
+  labs(title = "SHAP Value Differences for TP53", y = "SHAP Full", x = "SHAP Gene") +
+  stat_cor(method = "pearson", label.x.npc = "left", label.y.npc = "bottom") +
+  facet_grid( ~ TP53_Status, scales = "free") +
+  theme_bw() 
+```
+```{r}
+tp53 %>%
+  group_by(TP53_Status, Mutation_status) %>%
+  summarize(cor = cor(SHAP_gene, SHAP_full, use = "complete.obs"),
+  N = n())  %>%
+  arrange(cor) %>%
+    knitr::kable(caption = "Correlación entre valores SHAP por estado de TP53 y mutación")
+```
+```{r}
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ TP53multi*ASXL1,  data = clinical)
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ TP53multi*N_mutations,  data = clinical)
+```
+
+En pacientes con muchas mutaciones y co-mutaciones en ASXL1, la correlación entre los SHAP values del modelo completo y del modelo entrenado sin TP53 es muy baja. Esto se explica a que el riesgo de LFS de TP53 multi interacciona negativamente con estas variables. El modelo completo lo puede aprender, no así el modelo entrenado sin pacientes de TP53.
+
+
+## SF3B1
+
+```{r}
+sf3b1 <- filter(comb_shap_patient, Gene == "SF3B1")  %>%
+  mutate(Mutation_status = 
+    ifelse(del5q == 1, "SF3B1 + del5q",
+          ifelse(STAG2 == 1, "SF3B1 + STAG2",
+            ifelse(RUNX1 == 1, "SF3B1 + RUNX1", 
+              ifelse(SRSF2 == 1, "SF3B1 + SRSF2",
+              ifelse(TET2bi == 1, "SF3B1 + TET2bi",
+                ifelse(IDH2 == 1, "SF3B1 + IDH2",
+                ifelse(EZH2 == 1, "SF3B1 + EZH2",
+                ifelse(TET2other == 1, "SF3B1 + TET2other",
+                ifelse(N_mutations == 1, "Only SF3B1", 
+                  ifelse(N_mutations == 2, "SF3B1 and 1 mut.", "SF3B1 and 2+ mut.")))))))))),
+        Mutation_status = factor(Mutation_status, 
+          levels = c("Only SF3B1", "SF3B1 + del5q", "SF3B1 + STAG2", "SF3B1 + RUNX1", 
+               "SF3B1 + TET2bi", "SF3B1 + IDH2", "SF3B1 + SRSF2", "SF3B1 + EZH2", 
+               "SF3B1 + TET2other", "SF3B1 and 1 mut.", "SF3B1 and 2+ mut.")))
+```
+
+
+```{r, fig.width=14, fig.height=10}
+sf3b1 %>%
+  ggplot(aes(x = SHAP_gene, y = SHAP_full, color = Mutation_status)) +
+  geom_point() +
+  labs(title = "SHAP Value Differences for SF3B1", y = "SHAP Full", x = "SHAP Gene") +
+  stat_cor(method = "pearson", label.x.npc = "left", label.y.npc = "bottom") +
+  theme_bw() +
+  facet_wrap(~ Mutation_status, scales = "free") 
+```
+
+
+```{r, fig.width=12, fig.height=8}
+sf3b1 %>%
+  ggplot(aes(x = SHAP_gene, y = SHAP_full, color = CYTO_IPSSR)) +
+  geom_point() +
+  labs(title = "SHAP Value Differences for SF3B1", y = "SHAP Full", x = "SHAP Gene") +
+  stat_cor(method = "pearson", label.x.npc = "left", label.y.npc = "bottom") +
+ theme_bw() 
+```
+
+
+```{r}
+sf3b1 %>%
+  group_by( Mutation_status) %>%
+  summarize(cor = cor(SHAP_gene, SHAP_full, use = "complete.obs"),
+  N = n())  %>%
+  arrange(cor) %>%
+    knitr::kable(caption = "Correlación entre valores SHAP por estado de SF3B1 y mutación")
+```
+```{r}
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ SF3B1*del5q ,  data = clinical)
+```
+
+En este caso, los resultados más discordantes son para SF3B1 con del5q, que es un caso conocido de interacción negativa entre estas dos variables. El modelo completo puede aprender esta interacción, pero el modelo entrenado sin pacientes de SF3B1 no puede.
+
+## DNMT3A
+
+```{r}
+dnmt3a <- filter(comb_shap_patient, Gene == "DNMT3A")  %>%
+  mutate(Mutation_status = 
+  ifelse(EZH2 == 1, "DNMT3A + EZH2",
+    ifelse(STAG2 == 1, "DNMT3A + STAG2",
+      ifelse(TET2other == 1, "DNMT3A + TET2other",
+            ifelse(N_mutations == 1, "Only DNMT3A", 
+              ifelse(N_mutations == 2, "DNMT3A and 1 mut.", "DNMT3A and 2+ mut."))))),
+        Mutation_status = factor(Mutation_status, 
+          levels = c("Only DNMT3A", "DNMT3A + EZH2", "DNMT3A + STAG2", "DNMT3A + TET2other", "DNMT3A and 1 mut.", "DNMT3A and 2+ mut.")))
+```
+
+```{r, fig.width=14, fig.height=10}
+dnmt3a %>%
+  ggplot(aes(x = SHAP_gene, y = SHAP_full, color = Mutation_status)) +
+  geom_point() +
+  labs(title = "SHAP Value Differences for DNMT3A", y = "SHAP Full", x = "SHAP Gene") +
+  stat_cor(method = "pearson", label.x.npc = "left", label.y.npc = "bottom") +
+  theme_bw() +
+  facet_wrap(~ Mutation_status, scales = "free") 
+```
+
+
+```{r, fig.width=12, fig.height=8}
+dnmt3a %>%
+  ggplot(aes(x = SHAP_gene, y = SHAP_full, color = CYTO_IPSSR)) +
+  geom_point() +
+  labs(title = "SHAP Value Differences for DNMT3A", y = "SHAP Full", x = "SHAP Gene") +
+  stat_cor(method = "pearson", label.x.npc = "left", label.y.npc = "bottom") +
+ theme_bw() 
+```
+
+
+```{r}
+dnmt3a %>%
+  group_by( Mutation_status) %>%
+  summarize(cor = cor(SHAP_gene, SHAP_full, use = "complete.obs"),
+  N = n())  %>%
+  arrange(cor) %>%
+    knitr::kable(caption = "Correlación entre valores SHAP por estado de DNMT3A y mutación")
+```
+```{r}
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ DNMT3A*TET2other ,  data = clinical)
+```
+
+Los peores resultados son para TET2other. No obstante, no vemos una interacción significativa entre DNMT3A y TET2other para predecir LFS.
+
+
+## TET2
+
+```{r}
+tet2 <- filter(comb_shap_patient, Gene == "TET2")  %>%
+  mutate(TET2_Status = ifelse(TET2bi == 1, "TET2bi", ifelse(TET2other == 1, "TET2other", "Other")),
+         Mutation_status = 
+           ifelse(NF1 == 1, "TET2 + NF1",
+            ifelse(RUNX1 == 1, "TET2 + RUNX1",
+                    ifelse(N_mutations == 1, "Only TET2", 
+                      ifelse(N_mutations == 2, "TET2 and 1 mut.", "TET2 and 2+ mut.")))),
+         Mutation_status = factor(Mutation_status,
+           levels = c("Only TET2", "TET2 + NF1", "TET2 + RUNX1", "TET2 and 1 mut.", "TET2 and 2+ mut.")))
+```
+
+
+```{r, fig.width=14, fig.height=8}
+tet2 %>%
+  ggplot(aes(x = SHAP_gene, y = SHAP_full, color = Mutation_status)) +
+  geom_point() +
+  labs(title = "Diferencias de valores SHAP para TET2", y = "SHAP Completo", x = "SHAP Gen") +
+  stat_cor(method = "pearson", label.x.npc = "left", label.y.npc = "bottom") +
+  theme_bw() +
+  facet_grid( ~ TET2_Status)
+```
+
+
+```{r}
+tet2 %>%
+  group_by( TET2_Status, Mutation_status) %>%
+  summarize(cor = cor(SHAP_gene, SHAP_full, use = "complete.obs"),
+  N = n())  %>%
+  arrange(cor) %>%
+    knitr::kable(caption = "Correlación entre valores SHAP por estado de DNMT3A y mutación")
+```
+```{r}
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ TET2other*RUNX1 ,  data = clinical)
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ TET2bi*RUNX1 ,  data = clinical)
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ TET2other*NF1 ,  data = clinical)
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ TET2bi*NF1 ,  data = clinical)
+
+```
+
+Los peores resultados son cuando TET2 está junto a RUNX1 o NF1. La relación entre TET2 y estos genes es compleja. Las interacciones no son significativas para predecir LFS. No obstante, van en direcciones opuestas dependiendo de sí TET2 es bi-allelica o no. 
+
+## U2AF1
+
+```{r}
+u2af1 <- filter(comb_shap_patient, Gene == "U2AF1")  %>%
+  mutate(Mutation_status = 
+    ifelse(ETNK1 == 1, "U2AF1 + ETNK1",
+      ifelse(STAG2 == 1, "U2AF1 + STAG2",
+        ifelse(complex == "complex", "U2AF1 + complex",
+          ifelse(N_mutations == 1, "Only U2AF1", 
+            ifelse(N_mutations == 2, "U2AF1 and 1 mut.", 
+              ifelse(N_mutations == 3, "U2AF1 and 2 mut.", "U2AF1 and 3+ mut.")))))),
+    Mutation_status = factor(Mutation_status,
+      levels = c("Only U2AF1", "U2AF1 + ETNK1", "U2AF1 + STAG2", "U2AF1 + complex", "U2AF1 and 1 mut.", "U2AF1 and 2 mut.", "U2AF1 and 3+ mut."))) 
+```
+
+```{r, fig.width=14, fig.height=8}
+u2af1 %>%
+  ggplot(aes(x = SHAP_gene, y = SHAP_full, color = Mutation_status)) +
+  geom_point() +
+  labs(title = "Diferencias de valores SHAP para U2AF1", y = "SHAP Completo", x = "SHAP Gen") +
+  stat_cor(method = "pearson", label.x.npc = "left", label.y.npc = "bottom") +
+  theme_bw() +
+  facet_wrap(~ Mutation_status, scales = "free")
+```
+
+```{r}
+u2af1 %>%
+  group_by( Mutation_status) %>%
+  summarize(cor = cor(SHAP_gene, SHAP_full, use = "complete.obs"),
+  N = n())  %>%
+  arrange(cor) %>%
+    knitr::kable(caption = "Correlación entre valores SHAP por estado de U2AF1 y mutación")
+``` 
+
+```{r}
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ U2AF1*STAG2 ,  data = clinical)
+``` 
+        
+En este caso, la discordancia mayor es entre U2AF1 y STAG2. La interacción entre estas dos variables también sale significativa. El otro caso donde hay más diferencias es en pacientes que tienen múltiples mutaciones. Las discrepancias entre ambos modelos se explican porque el modelo completo puede aprender interaciones entre U2AF1 y otros genes, mientras que el modelo entrenado sin U2AF1 no puede.
+
+## ASXL1
+
+```{r}
+asxl1 <- filter(comb_shap_patient, Gene == "ASXL1")  %>%
+  mutate(
+    Mutation_status = case_when(
+      NRAS == 1 ~ "ASXL1 + NRAS",
+      ETV6 == 1 ~ "ASXL1 + ETV6",
+      EZH2 == 1 ~ "ASXL1 + EZH2",
+      SRSF2 == 1 ~ "ASXL1 + SRSF2",
+      STAG2 == 1 ~ "ASXL1 + STAG2",
+      SF3B1 == 1 ~ "ASXL1 + SF3B1",
+      N_mutations == 1 ~ "Only ASXL1",
+      N_mutations == 2 ~ "ASXL1 and 1 mut.",
+      TRUE ~ "ASXL1 and 2+ mut."
+    ),
+    Mutation_status = factor(
+      Mutation_status,
+      levels = c(
+        "Only ASXL1",
+        "ASXL1 + SF3B1",
+        "ASXL1 + NRAS",
+        "ASXL1 + ETV6",
+        "ASXL1 + EZH2",
+        "ASXL1 + SRSF2",
+        "ASXL1 + STAG2",
+        "ASXL1 and 1 mut.",
+        "ASXL1 and 2+ mut."
+      )
+    )
+  )
+```
+
+```{r, fig.width=14, fig.height=8}
+asxl1 %>%
+  ggplot(aes(x = SHAP_gene, y = SHAP_full, color = Mutation_status)) +
+  geom_point() +
+  labs(title = "Diferencias de valores SHAP para ASXL1", y = "SHAP Completo", x = "SHAP Gen") +
+  stat_cor(method = "pearson", label.x.npc = "left", label.y.npc = "bottom") + 
+    theme_bw() +
+    facet_wrap(~ Mutation_status, scales = "free")
+```
+
+```{r}
+asxl1 %>%
+  group_by(Mutation_status) %>%
+  summarize(cor = cor(SHAP_gene, SHAP_full, use = "complete.obs"),
+            N = n()) %>%
+  arrange(cor) %>%
+  knitr::kable(caption = "Correlación entre valores SHAP por estado de ASXL1 y mutación")
+```
+
+```{r}
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ ASXL1*SF3B1,  data = clinical)
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ ASXL1*SRSF2,  data = clinical)
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ ASXL1*EZH2,  data = clinical)
+```
+
+
+## RUNX1
+```{r}
+runx1 <- filter(comb_shap_patient, Gene == "RUNX1")  %>%
+  mutate(Mutation_status = 
+  ifelse(SRSF2 == 1, "RUNX1 + SRSF2",
+    ifelse(STAG2 == 1, "RUNX1 + STAG2",
+    ifelse(N_mutations == 1, "Only RUNX1", 
+      ifelse(N_mutations == 2, "RUNX1 and 1 mut.", "RUNX1 and 2+ mut.")))),
+    Mutation_status = factor(Mutation_status,
+      levels = c("Only RUNX1", "RUNX1 + SRSF2", "RUNX1 + STAG2", "RUNX1 and 1 mut.", "RUNX1 and 2+ mut.")))
+```
+
+````{r, fig.width=14, fig.height=8}
+runx1 %>%
+  ggplot(aes(x = SHAP_gene, y = SHAP_full, color = Mutation_status)) +
+  geom_point() +
+  labs(title = "Diferencias de valores SHAP para RUNX1", y = "SHAP Completo", x = "SHAP Gen") +
+  stat_cor(method = "pearson", label.x.npc = "left", label.y.npc = "bottom") +  
+  theme_bw() 
+```
+
+```{r}
+runx1 %>%
+  group_by(Mutation_status) %>%
+  summarize(cor = cor(SHAP_gene, SHAP_full, use = "complete.obs"),
+            N = n()) %>%
+  arrange(cor) %>%
+  knitr::kable(caption = "Correlación entre valores SHAP por estado de RUNX1 y mutación")
+```
+
+```{r}
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ RUNX1*SRSF2,  data = clinical)
+coxph(Surv(LFS_YEARS, LFS_STATUS) ~ RUNX1*STAG2,  data = clinical)
+```
+
+En este caso, la correlación entre los valores SHAP del modelo completo y del modelo sin RUNX1 es muy mala, siendo negativa en todos los casos. Además, los dos genes que explican parte del rendimiento del modelo (SRSF2 y STAG2) tienen una interacción significativa. 
+
+
+## Resumen de hallazgos principales
+
+```{r}
+# Genes con mayor frecuencia en interacciones positivas
+inters <- filter(scores_mode2, abs(inter_effect) > log2(1.5))
+interaction_genes <- sort(table(unlist(strsplit(inters$Gene, "_"))), decreasing = TRUE)
+
+cat("Genes más frecuentes en interacciones significativas:\n")
+head(interaction_genes, 10)
+```
+
+```{r}
+# Pacientes con efectos de interacción positivos
+pos_int_ids <- filter(scores_mode2, inter_effect > 0.1) %>% pull(ID)
+scores_mode2 %>%
+  filter(ID %in% pos_int_ids) %>%
+  group_by(ID) %>%
+  summarize(median_inter_effect = median(inter_effect, na.rm = TRUE),
+  mean_pos = mean(inter_effect > 0)) %>%
+  arrange(desc(median_inter_effect)) %>%
+  head(10) %>%
+  knitr::kable(caption = "Top 10 pacientes con mayor efecto de interacción positivo")
+```
+

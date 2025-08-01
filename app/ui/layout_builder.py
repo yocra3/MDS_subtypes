@@ -58,7 +58,7 @@ def create_layout(widgets):
         child=column(
             widgets['risk_score'],
             widgets['risk_category'],
-          #  widgets['hazard_ratio'],
+            widgets['hazard_ratio'],
             widgets['risk_plot']
         ),
         title="Scores"

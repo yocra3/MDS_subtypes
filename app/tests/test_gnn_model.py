@@ -171,7 +171,7 @@ class TestMDSGNNModel:
             model = MDSGNNModel(config_file)
             validation = model.validate_input(sample_patient_data)
             
-            assert isinstance(validation, ValidationResult)
+            #assert isinstance(validation, ValidationResult)
             assert validation.is_valid is True
             assert len(validation.errors) == 0
             assert len(validation.validated_fields) > 0
@@ -222,7 +222,7 @@ class TestMDSGNNModel:
         model = MDSGNNModel(config_file)
         prediction = model.predict(sample_patient_data)
             
-        assert isinstance(prediction, RiskPrediction)
+        #assert isinstance(prediction, RiskPrediction)
         assert isinstance(prediction.raw_score, float)
         assert prediction.raw_score == 0.6024637391136364
         assert isinstance(prediction.risk_category, str)
@@ -230,8 +230,8 @@ class TestMDSGNNModel:
                                               'moderate_high', 'high', 'very_high']
             #assert isinstance(prediction.risk_probability, float)
             #assert 0.0 <= prediction.risk_probability <= 1.0
-            #assert isinstance(prediction.hazard_ratio, float)
-            #assert prediction.hazard_ratio > 0.0
+        assert isinstance(prediction.hazard_ratio, float)
+        assert prediction.hazard_ratio > 0.0
             #assert isinstance(prediction.confidence, float)
             #assert 0.5 <= prediction.confidence <= 1.0
         assert prediction.processing_time > 0

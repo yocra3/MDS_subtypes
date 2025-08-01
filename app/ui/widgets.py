@@ -220,21 +220,21 @@ class WidgetFactory:
         """Crea widgets para mostrar resultados."""
         # Resultado principal
         self.widgets['risk_score'] = Div(
-            text="<h3>Score de Riesgo: --</h3>",
+            text="<h4>Score de Riesgo: --</h4>",
             width=300,
-            height=50
+            height=30
         )
         
         self.widgets['risk_category'] = Div(
-            text="<h3>Categoría: --</h3>",
+            text="<h4>Categoría: --</h4>",
             width=300,
-            height=50
+            height=30
         )
         
         self.widgets['hazard_ratio'] = Div(
-            text="<h3>Hazard Ratio: --</h3>",
+            text="<h4>Hazard Ratio: --</h4>",
             width=300,
-            height=50
+            height=30
         )
         
         # Detalles de la predicción

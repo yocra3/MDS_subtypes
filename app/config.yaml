@@ -171,16 +171,24 @@ risk_categories:
     moderate_low: 0.0
     moderate_high: 0.5
     high: 1.5
-    # very_high: > 1.5
+    very_high: 5
     
   labels:
-    very_low: "Muy Bajo"
+    very_low: "Very Bajo"
     low: "Bajo"  
     moderate_low: "Moderado-Bajo"
     moderate_high: "Moderado-Alto"
     high: "Alto"
     very_high: "Muy Alto"
-    
+
+  labels_short:
+    very_low: "VL"
+    low: "L"
+    moderate_low: "ML"
+    moderate_high: "MH"
+    high: "H"
+    very_high: "VH"
+
   # Colores para visualización (CSS)
   colors:
     very_low: "#2E8B57"     # Verde oscuro
@@ -189,6 +197,12 @@ risk_categories:
     moderate_high: "#FF8C00" # Naranja oscuro
     high: "#FF4500"         # Rojo-naranja
     very_high: "#8B0000"    # Rojo oscuro
+
+  risk_distribution:
+    # Distribución de scores de riesgo para cohortes
+    file_path: "results/gnn/full_input_model/v1_boolean/v1_boolean_normalized_scores.tsv"
+    description: "Distribución de scores de riesgo para cohortes MDS"
+    
 
 # Configuración de la interfaz de usuario
 ui:
