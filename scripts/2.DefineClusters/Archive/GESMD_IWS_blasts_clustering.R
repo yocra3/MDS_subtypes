@@ -12,7 +12,7 @@
 #' matrix and run PCA again. Run k-means clustering on the final matrix.
 #' 
 #' Docker command:   
-#' docker run -it -v $PWD:$PWD -w $PWD mds_subtypes_rsession:1.6 R
+#' docker run --rm -it -v $PWD:$PWD -w $PWD mds_subtypes_rsession:1.6 R
 #'
 #' ---------------------------
 
@@ -26,28 +26,162 @@ library(corrplot)
 
 
 load("results/preprocess/clinical_preproc.Rdata")
-load("data/GESMD/gesmd_data_all.Rdata")
+load("data/GESMD/gesmd_data_1125.Rdata")
 
 mutation <- read_tsv("./data/IPSSMol/df_mut.tsv")
 
 ## Merge datasets
-gesmd <- gesmd_data %>%
+gesmd <- gesmd_data_1125 %>%
     mutate(ID = as.character(register_number),
           WHO_2016 = who2017)
 
 com_variables <- intersect(colnames(gesmd), colnames(clinical))
-## Select variables for clustering
+## Perform clustering independently
+## Select IWS variables for clustering
 #' - Clinical: Blood cell proportions
 #' - Karyotype events
 #' . Mutations 
 clin_vars <- c("BM_BLAST", "WBC", "ANC", "MONOCYTES", "HB", "PLT")
-kar_events <- c("delY", "del11q", "del5q", "del12p", "complex",
+kar_events <- c("delY", "del11q", "del5q", "del12p", 
                 "del20q", "del7q", "plus8", "plus19", "del7")
 mutations <- colnames(clinical)[colnames(clinical) %in% colnames(mutation)]
-mut_vars <- mutations[!mutations %in% c("ID", "MLL_PTD", "ETNK1", "PPM1D", "BCORL1", "GNB1", "PRPF8")]
+mut_vars <- mutations[!mutations %in% c("ID")]
 
-sel_vars <- c("ID", clin_vars, kar_events, mut_vars, "consensus", "SF3B1", "del5q", "WHO_2016")
-sel_vars <- sel_vars[sel_vars %in% com_variables]
+gene_functions <- read_csv("data/gene_functions.csv")
+# comb_dataset <- rbind(select(gesmd, com_variables) %>% mutate(dataset = "GESMD"),
+#                        select(clinical, com_variables) %>% mutate(dataset = "IWS"))
+IWS_dataset <- clinical %>%
+    mutate(PLT = log(PLT)) %>% 
+    filter(consensus %in% c("Low blasts", "MDS-IB1", "MDS-IB2")) %>%
+    filter(!WHO_2016 %in% c("aCML", "CMML", "MDS/MPN-RS-T", "MDS/MPN-U", "other")) %>% ## Filtro IWS
+     filter(SF3B1 == 0 & del5q == 0) %>% ## Remove SF3B1 and del5q
+    filter(WBC < 20 & ANC < 40) %>% ## Remove outliers
+    mutate(complex = ifelse(complex == "complex", 1, 0)) %>%
+    select(all_of(c(mut_vars, kar_events, clin_vars, "ID"))) %>%
+    filter(complete.cases(.)) 
+
+gene_cats <- unique(gene_functions$Specific_Function)
+for (cat in gene_cats) {
+    genes_in_cat <- gene_functions %>%
+        filter(Specific_Function == cat) %>%
+        pull(Gene) %>%
+        intersect(colnames(IWS_dataset))
+    if (length(genes_in_cat) > 1) {
+        IWS_dataset[[cat]] <- ifelse(rowSums(IWS_dataset[, genes_in_cat], na.rm = TRUE) > 0, 1, 0)
+    }
+}
+
+# Clinical PCA
+clinvars_IWS <- IWS_dataset %>%
+    select(BM_BLAST, WBC, ANC, MONOCYTES, HB, PLT) %>%
+    as.matrix()
+
+clin_IWS_pc <- prcomp(clinvars_IWS, scale = TRUE)
+
+df_IWS_clin <- as_tibble(clin_IWS_pc$x) %>%
+    mutate(ID = IWS_dataset$ID) 
+
+png("figures/GESMD_IWS_clustering/clinical_IWS_PCs.png", width = 800, height = 800)
+ggplot(df_IWS_clin, aes(x = PC1, y = PC2)) +
+    geom_point() +
+    theme_bw()
+dev.off()
+
+
+# ## Remove low frequency karyotipic events (<5%) and mutations (<5%) in dataset & TET2
+# kar_events <- kar_events[kar_events %in% colnames(clust_dataset)]
+# kar_events_sel <- kar_events[colMeans(clust_dataset[clust_dataset$dataset == "IWS", kar_events]) > 0.01]
+# kar_events_sel <- c(kar_events_sel, "complex")
+
+# mut_vars <- mut_vars[mut_vars %in% colnames(clust_dataset)]
+# mut_vars_sel <- mut_vars[colMeans(clust_dataset[clust_dataset$dataset == "IWS", mut_vars], na.rm = TRUE) > 0.01]
+
+# clust_dataset2 <- clust_dataset %>%
+#     select(any_of(c("ID", clin_vars, kar_events_sel, mut_vars_sel, "dataset"))) %>%
+#     filter(complete.cases(.)) 
+
+
+# Karyotype and mutation CA
+# ## Remove low frequency karyotipic events and mutations (<1%) 
+kar_mut_IWS_mat <- IWS_dataset[, c(kar_events, mut_vars, gene_cats)] %>% as.matrix()
+kar_mut_IWS_mat <- kar_mut_IWS_mat[, !colnames(kar_mut_IWS_mat) %in% c("TET2", "TP53")]
+kar_mut_IWS_mat <- kar_mut_IWS_mat[, colMeans(kar_mut_IWS_mat) > 0.01]
+kar_mut_IWS_mat <- (kar_mut_IWS_mat - 1) * -1
+kar_mut_IWS_pca <- ca(kar_mut_IWS_mat)
+
+df_kar_mut_IWS <- as_tibble(kar_mut_IWS_pca$rowcoord) %>%
+    mutate(ID = IWS_dataset$ID)
+
+png("figures/GESMD_IWS_clustering/karyotype_mutation_IWS_PCs.png", width = 800, height = 800)
+ df_kar_mut_IWS %>%
+    ggplot(aes(x = Dim1, y = Dim2)) +
+    geom_point() +
+    theme_bw()
+dev.off()
+
+cumsum(kar_mut_IWS_pca$sv)/sum(kar_mut_IWS_pca$sv)
+plot(kar_mut_IWS_pca$sv/sum(kar_mut_IWS_pca$sv))
+
+comb_IWS_pc_mat <- cbind(clin_IWS_pc$x[, 1:4], kar_mut_IWS_pca$rowcoord[, 1:11])
+comb_IWS_pc <- prcomp(comb_IWS_pc_mat)
+
+df_IWS_comb <- as_tibble(comb_IWS_pc$x) %>%
+    mutate(ID = IWS_dataset$ID)
+
+png("figures/GESMD_IWS_clustering/combined_IWS_PCs.png", width = 500, height = 500)
+df_IWS_comb %>%
+    ggplot(aes(x = PC1, y = PC2)) +
+    geom_point() +
+    theme_bw()
+dev.off()
+
+
+
+png("figures/GESMD_IWS_clustering/IWS_corr_PCs.png", width = 800, height = 800)
+corrplot(cor(comb_IWS_pc_mat), method = 'number')
+dev.off()
+
+png("figures/GESMD_IWS_clustering/IWS_corr_oriPCs_combPCs.png", width = 800, height = 800)
+corrplot(cor(comb_IWS_pc_mat, comb_IWS_pc$x), method = 'number')
+dev.off()
+
+
+## K-means clustering
+### Define number of clusters based on silhouette score
+### Select 13 components (84% of variance)
+silhouette_score <- function(mat, data_dist, k) {
+  km <- kmeans(mat, centers = k, nstart = 1000)
+  ss <- silhouette(km$cluster, data_dist)
+  mean(ss[, 3])
+}
+
+
+comb_IWS_pc_sel <- comb_IWS_pc$x[, 1:15]
+dist_comb_IWS_pc <- dist(comb_IWS_pc_sel, method = "euclidean")
+set.seed(27)
+sil_scores <- sapply(2:20, silhouette_score,
+      mat = comb_IWS_pc_sel, data_dist = dist_comb_IWS_pc)
+png("figures/GESMD_IWS_clustering/IWS_kmeans_silhouette.png")
+plot(2:20, sil_scores, type="b", pch = 19, frame = FALSE,
+     xlab = "Number of clusters K",
+     ylab = "Silhouette Score",
+     main = "Combined clustering")
+dev.off()
+
+## Bests clusters: 11, 14
+clust_comb <- kmeans(comb_IWS_pc_sel, centers = 6, nstart = 1000)$cluster
+
+lapply(colnames(kar_mut_IWS_mat), function(var){
+    print(var)
+    print(table(kar_mut_IWS_mat[, var], clust_comb))
+}) %>% invisible()
+
+
+
+
+
+
+
 
 # Select data for clustering
 comb_dataset <- rbind(select(gesmd, com_variables) %>% mutate(dataset = "GESMD"),
@@ -61,20 +195,30 @@ clust_dataset <- comb_dataset %>%
         "WHO2017_SMD_SMP_INCLASIFICABLE", "WHO2017_SMD_SMP_SA_T", 
         "WHO2017_SMD_INCLASIFICABLE")) %>% ## Filtro GESMD
     filter(SF3B1 == 0 & del5q == 0) %>% ## Remove SF3B1 and del5q
-    select(any_of(c("ID", clin_vars, kar_events, mut_vars, "dataset"))) %>%
-    filter(complete.cases(.)) %>%
-    filter(WBC < 20) %>% ## Remove outliers
+    filter(WBC < 20 & ANC < 40) %>% ## Remove outliers
     mutate(complex = ifelse(complex == "complex", 1, 0)) 
 
+## Remove low frequency karyotipic events (<5%) and mutations (<5%) in dataset & TET2
+kar_events <- kar_events[kar_events %in% colnames(clust_dataset)]
+kar_events_sel <- kar_events[colMeans(clust_dataset[clust_dataset$dataset == "IWS", kar_events]) > 0.01]
+kar_events_sel <- c(kar_events_sel, "complex")
+
+mut_vars <- mut_vars[mut_vars %in% colnames(clust_dataset)]
+mut_vars_sel <- mut_vars[colMeans(clust_dataset[clust_dataset$dataset == "IWS", mut_vars], na.rm = TRUE) > 0.01]
+
+clust_dataset2 <- clust_dataset %>%
+    select(any_of(c("ID", clin_vars, kar_events_sel, mut_vars_sel, "dataset"))) %>%
+    filter(complete.cases(.)) 
+
 # Clinical PCA
-clinvars_mat <- clust_dataset %>%
+clinvars_mat <- clust_dataset2 %>%
     select(BM_BLAST, WBC, ANC, MONOCYTES, HB, PLT) %>%
     as.matrix()
 
 clin_pc <- prcomp(clinvars_mat, scale = TRUE)
 
 df_clin <- as_tibble(clin_pc$x) %>%
-    mutate(ID = clust_dataset$ID) %>%
+    mutate(ID = clust_dataset2$ID) %>%
     left_join(comb_dataset %>% select(ID, dataset), by = "ID") 
 
 png("figures/GESMD_IWS_clustering/clinical_PCs.png", width = 800, height = 800)
@@ -83,51 +227,53 @@ ggplot(df_clin, aes(x = PC1, y = PC2, color = dataset)) +
     theme_bw()
 dev.off()
 
-# Karyotype CA
-kar_mat <- clust_dataset[, kar_events[kar_events %in% colnames(clust_dataset)]] %>% as.matrix()
-kar_mat  <- kar_mat [, colMeans(kar_mat ) > 0.01] ## Remove low frequency karyotypes
-kar_mat <- (kar_mat - 1) * -1
-kar_pca <- ca(kar_mat)
+# Karyotype and mutation CA
+kar_mut_mat <- clust_dataset2[, c(kar_events_sel, mut_vars_sel)] %>% as.matrix()
+kar_mut_mat <- (kar_mut_mat - 1) * -1
+kar_mut_pca <- ca(kar_mut_mat)
 
-df_kar <- as_tibble(kar_pca$rowcoord) %>%
-    mutate(ID = clust_dataset$ID) %>%
+df_kar_mut <- as_tibble(kar_mut_pca$rowcoord) %>%
+    mutate(ID = clust_dataset2$ID) %>%
     left_join(comb_dataset %>% select(ID, dataset), by = "ID")
 
-png("figures/GESMD_IWS_clustering/karyotipe_PCs.png", width = 800, height = 800)
- df_kar %>%
+png("figures/GESMD_IWS_clustering/karyotype_mutation_PCs.png", width = 800, height = 800)
+ df_kar_mut %>%
     ggplot(aes(x = Dim1, y = Dim2, color = dataset)) +
     geom_point() +
     theme_bw()
 dev.off()
 
-# Mutation PCA
-mut_mat <- clust_dataset[, mut_vars[mut_vars %in% colnames(clust_dataset)]] %>% as.matrix()
-mut_mat  <- mut_mat [, colMeans(mut_mat ) > 0.05] ## Remove low frequency mutations & TET2
-mut_mat <- mut_mat[, colnames(mut_mat) != "TET2"]
-mut_mat <- (mut_mat - 1) * -1
-mut_pca <- ca(mut_mat)
+# # Mutation PCA
+# mut_mat <- clust_dataset[, mut_vars[mut_vars %in% colnames(clust_dataset)]] %>% as.matrix()
+# mut_mat  <- mut_mat [, colMeans(mut_mat ) > 0.05] ## Remove low frequency mutations & TET2
+# mut_mat <- mut_mat[, colnames(mut_mat) != "TET2"]
+# mut_mat <- (mut_mat - 1) * -1
+# mut_pca <- ca(mut_mat)
 
-df_mut <- as_tibble(mut_pca$rowcoord) %>%
-    mutate(ID = clust_dataset$ID) %>%
-    left_join(comb_dataset %>% select(ID, dataset), by = "ID") 
+# df_mut <- as_tibble(mut_pca$rowcoord) %>%
+#     mutate(ID = clust_dataset$ID) %>%
+#     left_join(comb_dataset %>% select(ID, dataset), by = "ID") 
 
-png("figures/GESMD_IWS_clustering/mutation_PCs.png", width = 800, height = 800)
-df_mut %>%
-    ggplot(aes(x = Dim1, y = Dim2, color = dataset)) +
-    geom_point() +
-    theme_bw()
-dev.off()
+# png("figures/GESMD_IWS_clustering/mutation_PCs.png", width = 800, height = 800)
+# df_mut %>%
+#     ggplot(aes(x = Dim1, y = Dim2, color = dataset)) +
+#     geom_point() +
+#     theme_bw()
+# dev.off()
 
 
 # Combine components
 # Select components explaining >80% of variation
-cumsum(kar_pca$sv)/sum(kar_pca$sv)
-cumsum(mut_pca$sv)/sum(mut_pca$sv)
-comb_pc_mat <- cbind(clin_pc$x[, 1:4], kar_pca$rowcoord[, 1:5], mut_pca$rowcoord[, 1:8])
+# cumsum(kar_pca$sv)/sum(kar_pca$sv)
+# cumsum(mut_pca$sv)/sum(mut_pca$sv)
+# comb_pc_mat <- cbind(clin_pc$x[, 1:4], kar_pca$rowcoord[, 1:5], mut_pca$rowcoord[, 1:8])
+# comb_pc <- prcomp(comb_pc_mat)
+cumsum(kar_mut_pca$sv)/sum(kar_mut_pca$sv)
+comb_pc_mat <- cbind(clin_pc$x[, 1:4], kar_mut_pca$rowcoord[, 1:20])
 comb_pc <- prcomp(comb_pc_mat)
 
 df_comb <- as_tibble(comb_pc$x) %>%
-    mutate(ID = clust_dataset$ID) %>%
+    mutate(ID = clust_dataset2$ID) %>%
     left_join(comb_dataset %>% select(ID, dataset), by = "ID")
 
 png("figures/GESMD_IWS_clustering/combined_PCs.png", width = 500, height = 500)
@@ -144,7 +290,7 @@ corrplot(cor(comb_pc_mat), method = 'number')
 dev.off()
 
 png("figures/GESMD_IWS_clustering/corr_oriPCs_combPCs.png", width = 800, height = 800)
-corrplot(cor(comb_pc_mat, comb_pc$x[, 1:13]), method = 'number')
+corrplot(cor(comb_pc_mat, comb_pc$x[, 1:18]), method = 'number')
 dev.off()
 
 
@@ -158,7 +304,7 @@ silhouette_score <- function(mat, data_dist, k) {
 }
 
 
-comb_pc_sel <- comb_pc$x[, 1:13]
+comb_pc_sel <- comb_pc$x[, 1:18]
 dist_comb_pc <- dist(comb_pc_sel, method = "euclidean")
 set.seed(27)
 sil_scores <- sapply(2:20, silhouette_score,
@@ -172,12 +318,12 @@ plot(2:20, sil_scores, type="b", pch = 19, frame = FALSE,
 dev.off()
 
 ## Bests clusters: 11, 14
-clust_comb <- kmeans(comb_pc_sel, centers = 11, nstart = 1000)$cluster
-table(clust_comb, clust_dataset$dataset)
+clust_comb <- kmeans(comb_pc_sel, centers = 16, nstart = 1000)$cluster
+table(clust_comb, clust_dataset2$dataset)
 
-lapply(c(colnames(kar_mat), colnames(mut_mat)), function(var){
+lapply(colnames(kar_mut_mat), function(var){
     print(var)
-    print(table(clust_dataset[[var]], clust_comb))
+    print(table(clust_dataset2[[var]], clust_comb))
 }) %>% invisible()
 
 

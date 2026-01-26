@@ -1,11 +1,14 @@
+# docker run --rm -it -v $PWD:$PWD -w $PWD mds_subtypes_rsession:1.6 R
+
 library(tidyverse)
 library(stringr)
 library(ggpubr)
+
 load("results/preprocess/clinical_preproc.Rdata")
 
-scores <- read_table("results/gnn/full_input_model/v1_boolean/v1_boolean_individual_gene_predictions.csv") %>%
+scores <- read_table("results/gnn/full_input_model_genePT/v1_boolean/v1_boolean_individual_gene_predictions.csv") %>%
   select(-Combination)
-scores_per_gene <- read_table("results/gnn/full_input_model/v1_boolean/v1_boolean_individual_gene_predictions_per_gene.csv")
+scores_per_gene <- read_table("results/gnn/genePT_model_per_gene/v1_boolean/v1_boolean_individual_gene_predictions_per_gene.csv")
 
 base <- subset(scores, Gene == "base")
 hist(base$Score)
@@ -24,8 +27,9 @@ final_scores <- scores_mode %>%
   mutate(nrow = n()) %>%
   filter(!(Gene == "base" & nrow == 2)) %>%
   select(ID, Score)
-write.table(final_scores, "results/gnn/full_input_model/v1_boolean/v1_boolean_normalized_scores.tsv", 
+write.table(final_scores, "results/gnn/full_input_model_genePT/v1_boolean/v1_boolean_normalized_scores.tsv", 
   sep = "\t", row.names = FALSE, quote = FALSE)
+
 
 single_genes <- subset(scores_mode, n_genes == 1 & Gene != "base")
 
@@ -126,13 +130,13 @@ gene_order <-  shaps %>%
   arrange(desc(m)) %>% 
   pull(Gene)
 
-png("figures/gnn/SHAP_genes.png", width = 800, height = 600)
+png("figures/gnn/genePT_SHAP_genes.png", width = 800, height = 600)
 shaps %>%
   left_join(gene_tab, by = "Gene")  %>%
   mutate(Gene = factor(Gene, levels = gene_order)) %>%
   ggplot(aes(x = Gene, y = SHAP, fill = IPSSM)) +
   geom_boxplot() +
-  labs(title = "SHAP Values by Gene", y = "SHAP Value", x = "Gene") +
+  labs(title = "SHAP Values by Gene (GenePT model)", y = "SHAP Value", x = "Gene") +
   theme_bw() +
   facet_wrap(Frequency ~ ., scales = "free_x", nrow = 2) +
   theme(axis.text.x = element_text(angle = 90))
@@ -141,7 +145,7 @@ dev.off()
 ## Explore SHAP values in relevant genes
 shap_patient <- left_join(shaps,
   clinical %>% select(ID, any_of(IPSSM_genes), TP53multi, TP53mono, 
-    TET2bi, TET2other, N_mutations, complex, del5q, plus8, del20q, del7, del7q, delY
+    TET2bi, TET2other, N_mutations, complex, del5q, plus8, del20q, del7, del7q, delY,
     CYTO_IPSSR), by = "ID")
 maf <- read_delim("data/IPSSMol/maf.tsv")
 
@@ -168,7 +172,7 @@ tet2_f <- shap_patient %>%
     rowwise() %>%
     mutate(main_mut = isMain("U2AF1", ID, maf)) 
 summary(lm(SHAP ~ ., select(tet2_f, -c(ID, TET2bi, Gene, Context, HR))))
-summary(lm(SHAP ~ SF3B1 + RUNX1 + CBL + SRSF2 + STAG2 + TET2other + complex  + del7 + del7q + N_mutations + main_mut, tet2_f))
+summary(lm(SHAP ~ FLT3 + RUNX1 + SRSF2 + DNMT3A + , tet2_f))
 
 png("figures/gnn/SHAP_full_TET2.png", width = 2500, height = 1500, res = 300)
 ggplot(tet2_f, aes(x = Context, y = HR)) +
@@ -531,7 +535,9 @@ shap_combs_sel <- shap_patient %>%
 
 ## Compute shap values for models per gene
 tested_genes <- unique(scores_per_gene$Testing_Gene)
-scores_per_gene_mode <- scores_per_gene %>%
+tested_genes <- tested_genes[!is.na(tested_genes)]
+scores_per_gene_mode <- scores_per_gene %>% 
+  filter(!is.na(Score)) %>%
   mutate(Gene = Gene_Combination) %>%
   group_by(ID) %>%
   mutate(score_diff = Score - Score[Gene == "base"]) %>%
@@ -556,9 +562,9 @@ comb_shap <- filter(shaps_per_gene, Gene == Testing_Gene) %>%
   left_join(shaps, by = c("ID", "Gene"), suffix = c("_gene", "_full")) %>%
   mutate(SHAP_diff = SHAP_gene - SHAP_full)
 
-save(shaps, shaps_per_gene, comb_shap, file = "results/gnn/v1_boolean_gene_SHAP.Rdata")
+save(shaps, shaps_per_gene, comb_shap, file = "results/gnn/genePT_v1_boolean_gene_SHAP.Rdata")
 
-png("figures/gnn/SHAP_comparison.png", width = 800, height = 600)
+png("figures/gnn/genePT_SHAP_comparison.png", width = 800, height = 600)
 ggplot(comb_shap, aes(x = Gene, y = SHAP_diff)) +
   geom_boxplot() +
   labs(title = "SHAP Value Differences by Gene", y = "SHAP Difference", x = "Gene") +
@@ -569,7 +575,7 @@ dev.off()
 
 
 ## Explore factors affecting SHAP values
-reduced_embeddings <- read_delim("results/preprocess/gene_embedding_reduced.tsv", delim = "\t")
+reduced_embeddings <- read_delim("results/preprocess/gene_embedding_reduced_genePT.tsv", delim = "\t")
 
 emb_mat <- as.matrix(reduced_embeddings[, -1])
 rownames(emb_mat) <- unlist(reduced_embeddings[, 1])
@@ -598,7 +604,7 @@ patient_per_gene <- comb_shap %>%
   summarize(n_patients = n_distinct(ID)) %>%
   ungroup()
 
-c_index <- read_delim("results/gnn/full_input_model_per_gene/v1_boolean_gene_summary_all.csv")
+c_index <- read_delim("results/gnn/genePT_model_per_gene/v1_boolean_gene_summary.csv")
 
 comb_shap_sum <- comb_shap %>%
   group_by(Testing_Gene) %>%
@@ -610,10 +616,10 @@ comb_shap_sum <- comb_shap %>%
   mutate(IPSSM = ifelse(Testing_Gene %in% IPSSM_genes, "IPSSM", "Other")) %>%
   arrange(desc(SHAP_cor)) 
 
-summary(lm(SHAP_cor ~ cor + redundancy + redundancy + best_val_c_index, comb_shap_sum))
+summary(lm(SHAP_cor ~ cor + redundancy + best_val_c_index, comb_shap_sum))
 
 
-png("figures/gnn/SHAP_genes_gene_model.png", width = 800, height = 600)
+png("figures/gnn/genePT_SHAP_genes_gene_model.png", width = 800, height = 600)
 filter(shaps_per_gene, Gene == Testing_Gene) %>%
   left_join(gene_tab, by = "Gene")  %>%
   mutate(Gene = factor(Gene, levels = gene_order)) %>%
@@ -625,13 +631,12 @@ filter(shaps_per_gene, Gene == Testing_Gene) %>%
   theme(axis.text.x = element_text(angle = 90))
 dev.off()
 
-
-png("figures/gnn/SHAP_comparison_scatter.png", width = 2000, height = 1600)
+png("figures/gnn/genePT_SHAP_comparison_scatter.png", width = 2000, height = 1600)
 comb_shap %>%
   mutate(Testing_Gene = factor(Testing_Gene, levels = comb_shap_sum$Testing_Gene)) %>%
   ggplot(aes(x = SHAP_gene, y = SHAP_full)) +
   geom_point() +
-  labs(title = "SHAP Value Differences by Gene", y = "SHAP Full", x = "SHAP Gene") +
+  labs(title = "SHAP Value Differences by Gene (GenePT model)", y = "SHAP Full", x = "SHAP Gene") +
   theme_bw() +
   facet_wrap(~ Testing_Gene, scales = "free") +
   geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
@@ -639,7 +644,10 @@ comb_shap %>%
 dev.off()
 
 
+
+
 ## Explore further failing genes
+load("results/preprocess/clinical_preproc.Rdata")
 
 comb_shap_patient <- left_join(comb_shap,
   clinical %>% select(ID, any_of(IPSSM_genes), TP53multi, TP53mono, 

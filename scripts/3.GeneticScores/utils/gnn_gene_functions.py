@@ -345,7 +345,7 @@ class GNNGeneTrainer:
 
         logger.info(f"Número de genes seleccionados para {model_name}: {len(sel_genes)}")
 
-        sel_genes = ['DNMT3A']
+        #sel_genes = ['DNMT3A']
         # Iterar sobre cada fold como test
         for gene in sel_genes:
             logger.info(f"Procesando gen {gene}")

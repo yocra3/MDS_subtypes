@@ -1,6 +1,6 @@
 """
 Get gene embeddings using the pre-trained model from scGPT
-docker run --gpus all -v $PWD:$PWD -w $PWD -it mds_subtypes_python:1.4 python
+docker run --gpus all -v $PWD:$PWD -w $PWD -it mds_subtypes_python:1.7 python
 
 """
 import copy

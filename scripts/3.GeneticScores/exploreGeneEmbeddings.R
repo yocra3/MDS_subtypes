@@ -17,6 +17,7 @@
 
 ## Load libraries and data
 library(tidyverse)
+library(pheatmap)
 library(biomaRt)
 
 ## Get list of coding genes
@@ -35,6 +36,7 @@ write.table(coding_genes, file = "results/preprocess/coding_genes.txt", sep = "\
 mutation <- read_tsv("./data/IPSSMol/df_mut.tsv")
 genes <- colnames(mutation)
 
+# scGPT gene embeddings
 embeddings <- read_delim("results/preprocess/gene_embedding_scgpt.tsv", delim = "\t")
 
 ## Visualize the embeddings using PCA
@@ -150,3 +152,102 @@ ggplot(pca_coding_red_data, aes(x = PC1, y = PC2, color = IPSSM)) +
   theme_bw() +
   theme(plot.title = element_text(hjust = 0.5))
 dev.off()
+
+# GenePT gene embeddings
+genept_embeddings <- read_delim("results/preprocess/gene_embedding_genept.tsv", delim = "\t", col_names = TRUE)
+
+
+## Visualize the embeddings using PCA
+pca_result_genept <- prcomp(genept_embeddings[, -1])
+
+pca_data_genept <- as.data.frame(pca_result_genept$x)
+pca_data_genept$Gene <- unlist(genept_embeddings[, 1])
+pca_data_genept <- pca_data_genept %>%
+  left_join(coding_genes, by = c("Gene" = "hgnc_symbol")) %>%
+  mutate(gene_biotype = ifelse(is.na(gene_biotype), "non-coding", gene_biotype)) %>%
+  dplyr::select(-ensembl_gene_id)
+
+# Plot PCA results
+png("figures/geneEmbeddings/genept_pca_coding_type.png", width = 1500, height = 1100, res = 300)
+ggplot(pca_data_genept, aes(x = PC1, y = PC2, color = gene_biotype)) +
+  geom_point(alpha = 0.1) +
+  labs(title = "PCA of genePT Gene Embeddings",
+       x = "PC1",
+       y = "PC2") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+dev.off()
+summary(lm(PC1 ~ gene_biotype, pca_data_genept))
+
+
+png("figures/geneEmbeddings/genept_pca_coding_type_density.png", width = 1500, height = 1100, res = 300)
+ggplot(pca_data_genept, aes(x = PC1, color = gene_biotype)) +
+  geom_density() +
+  labs(title = "Density Plot of PCA of genePT Gene Embeddings",
+       x = "PC1",
+       y = "Density") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+dev.off()
+
+## Subset only coding genes
+coding_embeddings_genePT <- genept_embeddings[unlist(genept_embeddings[, 1]) %in% coding_genes$hgnc_symbol, ]
+
+pca_coding_genePT <- prcomp(coding_embeddings_genePT[, -1])
+pca_coding_data_genePT <- as.data.frame(pca_coding_genePT$x)
+pca_coding_data_genePT$Gene <-  unlist(coding_embeddings_genePT[, 1])
+pca_coding_data_genePT$IPSSM <- ifelse(pca_coding_data_genePT$Gene %in% genes, "IPSSM", "Other")
+
+# Plot PCA results for coding genes with IPSSM
+png("figures/geneEmbeddings/genePT_pca_coding_gene_embeddings_ipssm.png", width = 1500, height = 1100, res = 300)
+ggplot(pca_coding_data_genePT, aes(x = PC1, y = PC2, color = IPSSM)) +
+  geom_point() +
+  labs(title = "PCA of genePT Coding Gene Embeddings in IPSSM",
+       x = "PC1",
+       y = "PC2") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+dev.off()
+
+
+## Evaluate reduced embeddings
+reduced_embeddings_genePT <- read_delim("results/preprocess/gene_embedding_reduced_genePT.tsv", delim = "\t")
+scores_per_gene <- read_table("results/gnn/full_input_model/v1_boolean/v1_boolean_individual_gene_predictions_per_gene.csv")
+tested_genes <- unique(scores_per_gene$Testing_Gene)
+
+
+emb_genePT_mat <- as.matrix(genept_embeddings[, -1])
+rownames(emb_genePT_mat) <- unlist(genept_embeddings[, 1])
+
+red_emb_genePT_mat <- as.matrix(reduced_embeddings_genePT[, -1])
+rownames(red_emb_genePT_mat) <- unlist(reduced_embeddings_genePT[, 1])
+
+mini_red_genePT_emb <- head(red_emb_genePT_mat, 50)
+d_genePT_red <- dist(mini_red_genePT_emb)
+
+mini_genePT_emb <- emb_genePT_mat[rownames(mini_red_genePT_emb), ]
+d_genePT_emb <- dist(mini_genePT_emb)
+
+pca_coding_genePT_red <- prcomp(red_emb_genePT_mat)
+pca_coding_genePT_red_data <- as.data.frame(pca_coding_genePT_red$x)
+pca_coding_genePT_red_data$Gene <-  rownames(pca_coding_genePT_red_data)
+pca_coding_genePT_red_data$IPSSM <- ifelse(pca_coding_genePT_red_data$Gene %in% genes, "IPSSM", "Other")
+
+# Plot PCA
+png("figures/geneEmbeddings/genePT_pca_coding_reduced_gene_embeddings_ipssm.png", width = 1500, height = 1100, res = 300)
+ggplot(pca_coding_genePT_red_data, aes(x = PC1, y = PC2, color = IPSSM)) +
+  geom_point() +
+  labs(title = "PCA of genePT Coding Gene Embeddings in IPSSM",
+       x = "PC1",
+       y = "PC2") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+dev.off()
+
+
+filt_mat <- red_emb_genePT_mat[rownames(red_emb_genePT_mat) %in% tested_genes, ]
+
+png("figures/gnn/genePT_gene_embedding_heatmap.png", width = 700, height = 1200)
+pheatmap(filt_mat)
+dev.off()
+
