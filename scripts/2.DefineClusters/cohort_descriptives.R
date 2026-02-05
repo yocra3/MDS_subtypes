@@ -20,6 +20,8 @@
 # Load libraries and data
 library(tidyverse)
 library(ipssm)
+library(readxl)
+library(pheatmap)
 
 load("results/clustering/MFA_results.Rdata")
 
@@ -38,6 +40,31 @@ classifySamples <- function(df){
       "Low blasts", "MDS-IB1", "MDS-IB2"))
 }
 
+classifySamplesTaxonomy <- function(df){
+    new_class <- case_when(
+    df$DDX41 == 1       ~ "DDX41",
+    df$NPM1 == 1 | (df$FLT3 == 1 & df$NPM1 == 1) ~ "AML-like",
+    df$TP53multi == 1 | df$complex == 1 ~ "TP53-complex",
+    df$del7 == 1 | df$SETBP1 == 1       ~ "7-/SETBP1",
+    df$del5q == 1      ~ "del(5q)",
+    df$EZH2 == 1 & df$ASXL1 == 1  ~ "EZH2-ASXL1",
+    df$IDH2 == 1 | df$IDH1 == 1 | (df$STAG2 == 1 & df$ASXL1 == 1) | (df$STAG2 == 1 & df$SRSF2 == 1) ~ "IDH-STAG2",
+    df$BCOR == 1 | df$BCORL1 == 1 ~ "BCOR/L1",
+    df$TET2bi == 1 | (df$TET2other == 1 & df$SRSF2 == 1) ~ "bi-TET2",
+    df$U2AF1 == 1 ~ "U2AF1",
+    df$SRSF2 == 1 ~ "SRSF2",
+    df$ZRSR2 == 1 ~ "ZRSR2",
+    df$SF3B1 == 1 ~ "SF3B1",
+    df$DNMT3A == 1 | df$TET2 == 1 | df$TP53mono == 1 | df$delY == 1 ~ "CCUS-like",
+    TRUE                ~ "Other" 
+  )
+  factor(new_class)
+}
+
+
+molecular_class <- read_xlsx("data/BLOOD_BLD-2023-023727-mmc1.xlsx", sheet = "Table S3 (full database)") 
+
+
 ## Preprocess IWS
 load("results/preprocess/clinical_preproc.Rdata")
 IWS_mds <- clinical %>%
@@ -46,10 +73,10 @@ IWS_mds <- clinical %>%
     filter(!WHO_2016 %in% c("aCML", "CMML", "MDS/MPN-RS-T", "MDS/MPN-U", "other")) %>% ## Filtro IWS
     filter(SF3B1 == 0 & del5q == 0) %>% ## Remove SF3B1 and del5q 
     filter(if_all(c(BM_BLAST, EZH2, STAG2, del7, TET2bi), ~ !is.na(.))) %>%
-    mutate(sub_group = classifySamples(.))
+    mutate(sub_group = classifySamples(.),
+    mol_manual = classifySamplesTaxonomy(.)) %>%
+    left_join(molecular_class %>% select(ID, MOLECULAR_GROUP), by = "ID")
 IWS_dataset_filt <- subset(IWS_mds, ID %in% IWS_dataset$ID)
-
-
 
 
 ## Preprocess GESMD 
@@ -59,7 +86,8 @@ gesmd <- gesmd_data_1125 %>%
           WHO_2016 = who2017)
 
 gesmd_dataset <- gesmd %>%
-    mutate(PLT = log(PLT)) %>% 
+    mutate(PLT = log(PLT),
+    TP53mono = ifelse(TP53 == 1 & TP53multi == 0, 1, 0)) %>% 
     filter(consensus %in% c("Low blasts", "MDS-IB1", "MDS-IB2")) %>%
     filter(!WHO_2016 %in% c("WHO2017_LMA", "WHO2017_LMMC", "WHO2017_LMMC_0", 
         "WHO2017_LMMC_1", "WHO2017_LMMC_2", "WHO2017_LMMCX", "WHO2017_OTROS", 
@@ -68,7 +96,8 @@ gesmd_dataset <- gesmd %>%
     filter(SF3B1 == 0 & del5q == 0) %>% ## Remove SF3B1 and del5q
     filter(WBC < 20 & ANC < 40) %>%
     filter(if_all(c(BM_BLAST, EZH2, STAG2, del7, TET2bi), ~ !is.na(.))) %>%
-    mutate(sub_group = classifySamples(.))
+    mutate(sub_group = classifySamples(.),
+    mol_manual = classifySamplesTaxonomy(.)) 
 
 ipssm_process <- IPSSMprocess(gesmd_dataset)
 ipssm_res <- IPSSMmain(ipssm_process)
@@ -231,3 +260,6 @@ all_test <- c(sapply(c("SEX", "consensus", "IPSSM"), chisq_test, df = full_datas
 all_test
 
 save(gesmd_dataset, IWS_mds, file = "results/GESMD_IWS_clustering/gesmd_IWS_full.Rdata")
+
+
+
