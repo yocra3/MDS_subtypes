@@ -27,3 +27,9 @@ RUN R -e 'BiocManager::install(c("GOfuncR", "Homo.sapiens"))'
 
 # Install ca for correspondency analysis (v.1.6)
 RUN R -e 'BiocManager::install(c("ca"))'
+
+# Install forestploter and RNAseq  for forest plots (v.1.7)
+RUN R -e 'BiocManager::install(c("forestploter", "DESeq2", "edgeR", "limma", "NetActivity", "GSVA"))'
+
+# Install genes annotation (v.1.8)
+RUN R -e 'BiocManager::install(c("EnsDb.Hsapiens.v86"))'

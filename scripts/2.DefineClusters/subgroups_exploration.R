@@ -24,14 +24,14 @@ load("results/GESMD_IWS_clustering/gesmd_IWS_full.Rdata")
 
 # colors <- c("black", "grey40", "#E69F00", "#56B4E9", "#009E73", 
 #     "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#999999", "#0000FF")
-colors6 <- c("#E69F00", "#56B4E9", "#009E73", "#CC79A7", "#999999", "grey40",  "black")
-
-scale_col <- scale_color_manual(values = colors6, name = "Sub-group")
-scale_fill <- scale_fill_manual(values = colors6, name = "Sub-group")
+colors <- c("#E69F00", "#56B4E9", "#009E73", "#CC79A7", "#F0E442", "#0072B2", 
+    "#D55E00", "#999999", "grey40",  "black")
+scale_col <- scale_color_manual(values = colors, name = "Sub-group")
+scale_fill <- scale_fill_manual(values = colors, name = "Sub-group")
 
 ## Proportion of each subgroup in each dataset
-mean(IWS_mds$sub_group %in% c("EZH2", "TET2 bi-allelic", "7-", "STAG2"))
-mean(gesmd_dataset$sub_group %in% c("EZH2", "TET2 bi-allelic", "7-", "STAG2"))
+mean(IWS_mds$sub_group %in% c("EZH2", "TET2 bi-allelic", "7-", "STAG2", "del5q", "SF3B1", "Complex"))
+mean(gesmd_dataset$sub_group %in% c("EZH2", "TET2 bi-allelic", "7-", "STAG2", "del5q", "SF3B1", "Complex"))
 
 prop.table(table(IWS_mds$sub_group))
 prop.table(table(gesmd_dataset$sub_group))
@@ -58,45 +58,45 @@ makeBoxPlots <- function(variable, label){
 
 
 ### WBC
-png("figures/GESMD_IWS_clustering/subgroup_exploration/WBC_subgroups.png", width = 2000, height = 1200, res = 300)
-makeBoxPlots("WBC", "WBC count")
-dev.off()
+# png("figures/GESMD_IWS_clustering/subgroup_exploration/WBC_subgroups.png", width = 2000, height = 1200, res = 300)
+# makeBoxPlots("WBC", "WBC count")
+# dev.off()
 
 
-### BM_BLAST
-png("figures/GESMD_IWS_clustering/subgroup_exploration/BM_subgroups.png", width = 2000, height = 1200, res = 300)
-makeBoxPlots("BM_BLAST", "BM Blasts proportion")
-dev.off()
+# ### BM_BLAST
+# png("figures/GESMD_IWS_clustering/subgroup_exploration/BM_subgroups.png", width = 2000, height = 1200, res = 300)
+# makeBoxPlots("BM_BLAST", "BM Blasts proportion")
+# dev.off()
 
-### ANC
-png("figures/GESMD_IWS_clustering/subgroup_exploration/ANC_subgroups.png", width = 2000, height = 1200, res = 300)
-makeBoxPlots("ANC", "ANC")
-dev.off()
+# ### ANC
+# png("figures/GESMD_IWS_clustering/subgroup_exploration/ANC_subgroups.png", width = 2000, height = 1200, res = 300)
+# makeBoxPlots("ANC", "ANC")
+# dev.off()
 
-### MONOCYTES
-png("figures/GESMD_IWS_clustering/subgroup_exploration/MONOCYTES_subgroups.png", width = 2000, height = 1200, res = 300)
-makeBoxPlots("MONOCYTES", "Monocytes")
-dev.off()
+# ### MONOCYTES
+# png("figures/GESMD_IWS_clustering/subgroup_exploration/MONOCYTES_subgroups.png", width = 2000, height = 1200, res = 300)
+# makeBoxPlots("MONOCYTES", "Monocytes")
+# dev.off()
 
-### PLT
-png("figures/GESMD_IWS_clustering/subgroup_exploration/PLT_subgroups.png", width = 2000, height = 1200, res = 300)
-makeBoxPlots("PLT", "Platelets")
-dev.off()
+# ### PLT
+# png("figures/GESMD_IWS_clustering/subgroup_exploration/PLT_subgroups.png", width = 2000, height = 1200, res = 300)
+# makeBoxPlots("PLT", "Platelets")
+# dev.off()
 
-### PB_BLAST
-png("figures/GESMD_IWS_clustering/subgroup_exploration/PB_subgroups.png", width = 2000, height = 1200, res = 300)
-makeBoxPlots("PB_BLAST", "PB Blasts proportion")
-dev.off()
+# ### PB_BLAST
+# png("figures/GESMD_IWS_clustering/subgroup_exploration/PB_subgroups.png", width = 2000, height = 1200, res = 300)
+# makeBoxPlots("PB_BLAST", "PB Blasts proportion")
+# dev.off()
 
-### HB
-png("figures/GESMD_IWS_clustering/subgroup_exploration/HB_subgroups.png", width = 2000, height = 1200, res = 300)
-makeBoxPlots("HB", "Hemoglobin")
-dev.off()
+# ### HB
+# png("figures/GESMD_IWS_clustering/subgroup_exploration/HB_subgroups.png", width = 2000, height = 1200, res = 300)
+# makeBoxPlots("HB", "Hemoglobin")
+# dev.off()
 
 
-png("figures/GESMD_IWS_clustering/subgroup_exploration/WBC_subgroups.png", width = 2000, height = 1200, res = 300)
-makeBoxPlots("WBC", "WBC count")
-dev.off()
+# png("figures/GESMD_IWS_clustering/subgroup_exploration/WBC_subgroups.png", width = 2000, height = 1200, res = 300)
+# makeBoxPlots("WBC", "WBC count")
+# dev.off()
 
 
 ### Panel of clinical variables
@@ -116,7 +116,7 @@ legend <- get_plot_component(makeBoxPlots("ANC", "ANC") +
 theme(legend.position = "bottom"),
  "guide-box", return_all = TRUE)[[3]]
 
-png("figures/GESMD_IWS_clustering/subgroup_exploration/clin_vars_panel.png", width = 2000, height = 1900, res = 300)
+png("figures/GESMD_IWS_clustering/subgroup_exploration/clin_vars_panel.png", width = 2500, height = 1900, res = 300)
 plot_grid(
     plot_grid(plotlist = clin_plots, ncol = 2,
         labels = "AUTO"),
@@ -126,13 +126,26 @@ dev.off()
 
 
 ## Tests
-sub_groups <- c("EZH2", "TET2 bi-allelic", "7-", "STAG2", "Low blasts", "MDS-IB1", "MDS-IB2")
+sub_groups <- c("EZH2", "TET2 bi-allelic", "7-", "STAG2", "del5q", "SF3B1", "Complex", "Low blasts", "MDS-IB1", "MDS-IB2")
 clin_vars <- c("BM_BLAST", "PB_BLAST", "WBC", "ANC", "MONOCYTES", "HB", "PLT")
 
 clin_joint <- bind_rows(
     IWS_mds %>% select(all_of(clin_vars), sub_group, AGE, SEX) %>% mutate(dataset = "IWS"), 
     gesmd_dataset %>% select(all_of(clin_vars), sub_group, AGE, SEX) %>% mutate(dataset = "GESMD")
 )
+
+## Compute cytopenia prop
+group_by(clin_joint, sub_group, dataset) %>% 
+    summarize(PLT_L = mean(PLT < 150, na.rm = TRUE),
+     PLT_M = mean(PLT < 100, na.rm = TRUE),
+     PLT_S = mean(PLT < 50, na.rm = TRUE),
+        HB_L = mean(HB < 12, na.rm = TRUE),
+        HB_M = mean(HB < 10, na.rm = TRUE),
+        HB_S = mean(HB < 8, na.rm = TRUE), 
+        WBC_L = mean(WBC < 4, na.rm = TRUE),
+        WBC_M = mean(WBC < 3, na.rm = TRUE),
+        WBC_S = mean(WBC < 1.5, na.rm = TRUE)) %>%
+        t()
 
 nb <- c("BM_BLAST", "PB_BLAST")
 res_nb <- lapply(nb, function(var){
@@ -260,9 +273,9 @@ age_plot <- makeBoxPlots("AGE", "Age") +
 labs(y = "Age (Years)")
 
 
-png("figures/GESMD_IWS_clustering/subgroup_exploration/AGE_subgroups.png", width = 2000, height = 1200, res = 300)
-age_plot
-dev.off()
+# png("figures/GESMD_IWS_clustering/subgroup_exploration/AGE_subgroups.png", width = 2000, height = 1200, res = 300)
+# age_plot
+# dev.off()
 
 
 summary(lm(AGE ~ sub_group + dataset, mutate(clin_joint, sub_group = relevel(sub_group, "Low blasts"))))
@@ -283,9 +296,9 @@ sex_plot <- clin_joint %>%
         theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
             strip.text = element_blank(), strip.background = element_blank(),
             plot.title = element_text(hjust = 0.5))
-png("figures/GESMD_IWS_clustering/subgroup_exploration/Sex_subgroups.png", width = 2000, height = 1000, res = 300)
-sex_plot
-dev.off()
+# png("figures/GESMD_IWS_clustering/subgroup_exploration/Sex_subgroups.png", width = 2000, height = 1000, res = 300)
+# sex_plot
+# dev.off()
 
 png("figures/GESMD_IWS_clustering/subgroup_exploration/demographics_panel.png", width = 1500, height = 1600, res = 300)
 plot_grid(age_plot + theme(legend.position = "none"), 
@@ -352,37 +365,46 @@ dev.off()
 mutations <- c("ASXL1", "SRSF2", "DNMT3A", "TET2other", "RUNX1", "U2AF1",  
     "BCOR", "ZRSR2", "IDH2", "SETBP1", "DDX41", "CBL", "IDH1")
 
-plot_gene_frequency <- function(gene, scale_fill, output_dir = "figures/GESMD_IWS_clustering/subgroup_exploration/mutations/") {
-    png_filename <- file.path(output_dir, paste0(gene, "_subgroups.png"))
-   rbind(gesmd_dataset %>% select(sub_group, !!sym(gene)) %>% mutate(dataset = "GESMD"),
-      IWS_mds %>% select(sub_group, !!sym(gene)) %>% mutate(dataset = "IWS")) %>%
-      group_by(sub_group, dataset) %>%
-      summarize(Freq = mean(!!sym(gene))*100) %>%
-      mutate(dataset = factor(dataset, levels = c("IWS", "GESMD"))) %>%
-     ggplot(aes(x = dataset, y = Freq, fill = sub_group)) +
-        geom_bar(stat = "identity") +
-        facet_grid(~ sub_group) +
-        scale_fill +
-        scale_y_continuous(name = "Frequency (%)", limits = c(0, 100)) +
-        xlab("") +
-        ggtitle(paste(gene, "frequency")) +
-        theme_bw() +
-        theme(
-            axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
-            strip.text = element_blank(), strip.background = element_blank(),
-            plot.title = element_text(hjust = 0.5)
-        )
-    ggsave(png_filename, width = 2000, height = 1000, dpi = 300, units = "px")
-}
-lapply(mutations, plot_gene_frequency, scale_fill = scale_fill)
+# plot_gene_frequency <- function(gene, scale_fill, output_dir = "figures/GESMD_IWS_clustering/subgroup_exploration/mutations/") {
+#     png_filename <- file.path(output_dir, paste0(gene, "_subgroups.png"))
+#    rbind(gesmd_dataset %>% select(sub_group, !!sym(gene)) %>% mutate(dataset = "GESMD"),
+#       IWS_mds %>% select(sub_group, !!sym(gene)) %>% mutate(dataset = "IWS")) %>%
+#       group_by(sub_group, dataset) %>%
+#       summarize(Freq = mean(!!sym(gene))*100) %>%
+#       mutate(dataset = factor(dataset, levels = c("IWS", "GESMD"))) %>%
+#      ggplot(aes(x = dataset, y = Freq, fill = sub_group)) +
+#         geom_bar(stat = "identity") +
+#         facet_grid(~ sub_group) +
+#         scale_fill +
+#         scale_y_continuous(name = "Frequency (%)", limits = c(0, 100)) +
+#         xlab("") +
+#         ggtitle(paste(gene, "frequency")) +
+#         theme_bw() +
+#         theme(
+#             axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+#             strip.text = element_blank(), strip.background = element_blank(),
+#             plot.title = element_text(hjust = 0.5)
+#         )
+#     ggsave(png_filename, width = 2000, height = 1000, dpi = 300, units = "px")
+# }
+# lapply(mutations, plot_gene_frequency, scale_fill = scale_fill)
 
 plot_gene_frequency2 <- function(gene, scale_fill) {
-   rbind(gesmd_dataset %>% select(sub_group, !!sym(gene)) %>% mutate(dataset = "GESMD"),
-      IWS_mds %>% select(sub_group, !!sym(gene)) %>% mutate(dataset = "IWS")) %>%
+    joint_df <- rbind(gesmd_dataset %>% select(sub_group, !!sym(gene)) %>% mutate(dataset = "GESMD"),
+      IWS_mds %>% select(sub_group, !!sym(gene)) %>% mutate(dataset = "IWS")) 
+
+    if (gene == "complex"){
+        joint_df[[gene]] <- ifelse(joint_df[[gene]] %in% c("complex", "1"), 1, 0)
+    }
+
+  df_plot <- joint_df %>%
       group_by(sub_group, dataset) %>%
       summarize(Freq = mean(!!sym(gene))*100) %>%
-      mutate(dataset = factor(dataset, levels = c("IWS", "GESMD"))) %>%
-     ggplot(aes(x = dataset, y = Freq, fill = sub_group)) +
+      mutate(dataset = factor(dataset, levels = c("IWS", "GESMD"))) 
+     if (gene == "TET2other") {
+         gene <- "TET2 Mono-allelic"
+     }
+     ggplot(df_plot, aes(x = dataset, y = Freq, fill = sub_group)) +
         geom_bar(stat = "identity") +
         facet_grid(~ sub_group) +
         scale_fill +
@@ -397,10 +419,10 @@ plot_gene_frequency2 <- function(gene, scale_fill) {
             legend.position = "none"
         )
 }
-mut_plot <- lapply(mutations[!mutations %in% c("IDH1", "TET2other")], plot_gene_frequency2, scale_fill = scale_fill)
-png("figures/GESMD_IWS_clustering/subgroup_exploration/mutation_subgroups_panel.png", width = 2400, height = 2300, res = 300)
+mut_plot <- lapply(mutations, plot_gene_frequency2, scale_fill = scale_fill)
+png("figures/GESMD_IWS_clustering/subgroup_exploration/mutation_subgroups_panel.png", width = 4000, height = 2300, res = 300)
 plot_grid(
-    plot_grid(plotlist = mut_plot, ncol = 3, labels = "AUTO"),
+    plot_grid(plotlist = mut_plot, ncol = 4, labels = "AUTO"),
     legend, 
     ncol = 1, rel_heights = c(1, 0.1)
 )
@@ -438,10 +460,12 @@ write.table(mut_ORs,
 
 mut_sum_plot <- mut_ORs %>%
     filter(Comp_clust != "Low blasts") %>%
-    filter(Gene %in% mutations[!mutations %in% c("IDH1", "TET2other")]) %>%
-    mutate(Mut = factor(Gene, levels = c("RUNX1", "ASXL1", "ZRSR2", "SETBP1", "CBL", 
-    "IDH2", "BCOR", "U2AF1", "DNMT3A", "SRSF2", "DDX41")), 
+#    filter(Gene %in% mutations[!mutations %in% c("IDH1", "TET2other")]) %>%
+    mutate(Gene = ifelse(Gene == "TET2other", "TET2 Mono-allelic", Gene),
+        Mut = factor(Gene, levels = c("RUNX1", "ASXL1", "ZRSR2", "SETBP1", "CBL", 
+    "IDH2", "BCOR", "TET2 Mono-allelic", "U2AF1", "IDH1", "DNMT3A", "SRSF2", "DDX41")), 
     sub_group = factor(Comp_clust, levels = sub_groups)) %>%
+    mutate(OR = ifelse(OR == 0, 0.09, OR)) %>%
     ggplot(aes(x = sub_group, y = Mut, fill = log(OR) )) +
     geom_tile() +
     scale_fill_gradient2(
@@ -457,17 +481,21 @@ mut_sum_plot <- mut_ORs %>%
   theme_bw() +
   theme(legend.position = "none")
 
-png("figures/GESMD_IWS_clustering/subgroup_exploration/mutation_subgroups_summary.png", width = 1800, height = 1200, res = 300)
+png("figures/GESMD_IWS_clustering/subgroup_exploration/mutation_subgroups_summary.png", width = 2000, height = 1200, res = 300)
 mut_sum_plot
 dev.off()
 
 kar_events <- list("plus8" = "8+", "delY" = "Y-", "del20q" = "del20q")
 
 joint_kar <- rbind(
-    IWS_mds %>% select(all_of(names(kar_events)), sub_group) %>% mutate(dataset = "IWS"), 
-    gesmd_dataset %>% select(all_of(names(kar_events)), sub_group) %>% mutate(dataset = "GESMD")
+    IWS_mds %>% select(all_of(names(kar_events)), sub_group, CYTO_IPSSR) %>% mutate(dataset = "IWS"), 
+    gesmd_dataset %>% select(all_of(names(kar_events)), sub_group, CYTO_IPSSR) %>% mutate(dataset = "GESMD")
 ) %>%
-    mutate(dataset = factor(dataset, levels = c("IWS", "GESMD")))
+    mutate(dataset = factor(dataset, levels = c("IWS", "GESMD")),
+    CYTO_IPSSR = fct_collapse(CYTO_IPSSR,
+    "Very-Good" = c("Very-Good", "Very Good"),
+    "Intermediate" = c("Intermediate", "Int"),
+    "Very-Poor" = c("Very-Poor", "Very Poor")))
 kar_ORs <- lapply(names(kar_events), function(var){
     lapply(sub_groups[sub_groups != "Low blasts"], function(group){
         sel_df <- filter(joint_kar, sub_group %in% c(group, "Low blasts")) %>%
@@ -490,7 +518,8 @@ write.table(kar_ORs,
 kar_sum_plot <- kar_ORs %>%
     filter(Sub_group != "Low blasts") %>%
     mutate(Event = factor(Event, levels = c("8+", "Y-", "del20q")), 
-    sub_group = factor(Sub_group, levels = sub_groups)) %>%
+    sub_group = factor(Sub_group, levels = sub_groups),
+    OR = ifelse(OR == 0, 0.15, OR)) %>%
     ggplot(aes(x = sub_group, y = Event, fill = log(OR) )) +
     geom_tile() +
     scale_fill_gradient2(
@@ -512,9 +541,9 @@ dev.off()
 kar_plot <- lapply(names(kar_events), plot_gene_frequency2, scale_fill = scale_fill)
 kar_plot[[1]] <- kar_plot[[1]] + labs(title = "8+")
 kar_plot[[2]] <- kar_plot[[2]] + labs(title = "Y-")
-png("figures/GESMD_IWS_clustering/subgroup_exploration/karyotype_subgroups_panel.png", width = 2400, height = 700, res = 300)
+png("figures/GESMD_IWS_clustering/subgroup_exploration/karyotype_subgroups_panel.png", width = 2200, height = 1500, res = 300)
 plot_grid(
-    plot_grid(plotlist = kar_plot, ncol = 3, labels = "AUTO"),
+    plot_grid(plotlist = kar_plot, ncol = 2, labels = "AUTO"),
     legend, 
     ncol = 1, rel_heights = c(1, 0.3)
 )
@@ -546,24 +575,47 @@ ipssm_summary <- rbind(
   labs(
     title = "IPSSM classification",
     y = "Individuals (%)",
-    x = "Prognostic group",
+    x = "Sub-group",
     fill = "IPSSM") +
     facet_grid(~ sub_group) +
   theme(plot.title = element_text(hjust = 0.5)) 
-png("figures/GESMD_IWS_clustering/subgroup_exploration/IPSSM_summary.png", res = 300, height = 1200, width = 1800)
+png("figures/GESMD_IWS_clustering/subgroup_exploration/IPSSM_summary.png", res = 300, height = 900, width = 3000)
 ipssm_summary
 dev.off()
 
-png("figures/GESMD_IWS_clustering/subgroup_exploration/overall_summary.png", res = 300, height = 2200, width = 2800)
+
+
+ipssrcyto_summary <- joint_kar %>%
+    filter(!is.na(CYTO_IPSSR)) %>%
+  group_by(sub_group, CYTO_IPSSR, dataset) %>%
+  summarize(N = n()) %>%
+  group_by(sub_group, dataset) %>%
+  mutate(Freq = N/sum(N)) %>%
+  ggplot(aes(x = dataset, y = Freq*100, fill = CYTO_IPSSR)) +
+  geom_bar(stat = "identity") +
+  theme_bw() +
+  scale_fill_manual(values = c("#d73027", "#f46d43", "#fee08b", "#66bd63", "#2ca25f")) +
+  labs(
+    title = "IPSSR CYTO",
+    y = "Individuals (%)",
+    x = "Sub-group",
+    fill = "IPSSR CYTO") +
+    facet_grid(~ sub_group) +
+  theme(plot.title = element_text(hjust = 0.5)) 
+png("figures/GESMD_IWS_clustering/subgroup_exploration/IPSSR_CYTO_summary.png", res = 300, height = 900, width = 3000)
+ipssrcyto_summary
+dev.off()
+
+
+png("figures/GESMD_IWS_clustering/subgroup_exploration/overall_summary.png", res = 300, height = 2200, width = 3800)
 plot_grid(
     plot_grid(
         plot_grid(clin_sum_plot, kar_sum_plot,
-            ncol = 1, labels = c("A", "C"), rel_heights = c(2, 1)),
-        plot_grid(dem_sum_plot, mut_sum_plot,
-            ncol = 1, labels = c("B", "D"), rel_heights = c(1, 2)),
-        ncol = 2),
+            ncol = 1, labels = c("A", "B"), rel_heights = c(1.5, 1)),
+        mut_sum_plot, ncol = 2, labels = c("", "D")),
+    ipssrcyto_summary,
     ipssm_summary, 
-    ncol = 1, labels = c("", "E"), rel_heights = c(3, 2)
+    ncol = 1, labels = c("",  "C", "E"), rel_heights = c(3, 2, 2)
 )
 dev.off()
 
@@ -617,6 +669,8 @@ summarize_fun <- function(df){
             U2AF1 = getProp(U2AF1 == 1, U2AF1),
             BCOR = getProp(BCOR == 1, BCOR),
             ZRSR2 = getProp(ZRSR2 == 1, ZRSR2),
+            TET2other = getProp(TET2other == 1, TET2other),
+            IDH1 = getProp(IDH1 == 1, IDH1),
             IDH2 = getProp(IDH2 == 1, IDH2),
             SETBP1 = getProp(SETBP1 == 1, SETBP1),
             CBL = getProp(CBL == 1, CBL),
@@ -625,8 +679,8 @@ summarize_fun <- function(df){
 }
 
 ### Combined
-joint_subgroup_descriptives <- bind_rows(gesmd_dataset %>% mutate(dataset = "GESMD") %>% select(-complex),
-          IWS_mds %>% mutate(dataset = "IWS") %>% select(-complex)) %>%
+joint_subgroup_descriptives <- bind_rows(gesmd_dataset %>% mutate(dataset = "GESMD"),
+          IWS_mds %>% mutate(dataset = "IWS", complex = ifelse(complex == "complex", 1, 0))) %>%
     mutate(dataset = factor(dataset, levels = c("IWS", "GESMD"))) %>%
     group_by(dataset) %>%
     mutate(N = n()) %>%

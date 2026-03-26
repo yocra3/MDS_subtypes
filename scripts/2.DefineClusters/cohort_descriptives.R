@@ -12,7 +12,7 @@
 #' in the larger cohorts.
 #' 
 #' Docker command:   
-#' docker run --rm -it -v $PWD:$PWD -w $PWD mds_subtypes_rsession:1.6 R
+#' docker run --rm -it -v $PWD:$PWD -w $PWD mds_subtypes_rsession:1.8 R
 #'
 #' ---------------------------
 
@@ -29,14 +29,17 @@ classifySamples <- function(df){
     new_class <- case_when(
     df$EZH2 == 1        ~ "EZH2",
     df$TET2bi == 1      ~ "TET2 bi-allelic",
+    df$complex == 1     ~ "Complex",
     df$del7 == 1       ~ "7-",
+    df$del5q == 1      ~ "del5q",
+    df$SF3B1 == 1      ~ "SF3B1",
     df$STAG2 == 1       ~ "STAG2",
     df$BM_BLAST <= 5    ~ "Low blasts",
     df$BM_BLAST > 10    ~ "MDS-IB2",
     df$BM_BLAST > 5 & df$BM_BLAST <= 10 ~ "MDS-IB1",
     TRUE                ~ "Other" 
   )
-  factor(new_class, levels = c( "EZH2", "TET2 bi-allelic", "7-", "STAG2", 
+  factor(new_class, levels = c("EZH2", "TET2 bi-allelic",  "7-", "STAG2", "del5q", "SF3B1", "Complex",
       "Low blasts", "MDS-IB1", "MDS-IB2"))
 }
 
@@ -65,14 +68,18 @@ classifySamplesTaxonomy <- function(df){
 molecular_class <- read_xlsx("data/BLOOD_BLD-2023-023727-mmc1.xlsx", sheet = "Table S3 (full database)") 
 
 
+
+
 ## Preprocess IWS
 load("results/preprocess/clinical_preproc.Rdata")
-IWS_mds <- clinical %>%
-    mutate(PLT = log(PLT)) %>% 
+IWS_full <- clinical %>%
+    filter(!WHO_2016 %in% c("aCML", "CMML", "MDS/MPN-RS-T", "MDS/MPN-U", "other")) %>%
+    mutate(PLT2 = pmin(PLT, 250))
+
+IWS_mds <- IWS_full %>%
     filter(consensus %in% c("Low blasts", "MDS-IB1", "MDS-IB2")) %>%
-    filter(!WHO_2016 %in% c("aCML", "CMML", "MDS/MPN-RS-T", "MDS/MPN-U", "other")) %>% ## Filtro IWS
-    filter(SF3B1 == 0 & del5q == 0) %>% ## Remove SF3B1 and del5q 
-    filter(if_all(c(BM_BLAST, EZH2, STAG2, del7, TET2bi), ~ !is.na(.))) %>%
+    filter(if_all(c(BM_BLAST, EZH2, STAG2, del7, TET2bi, del5q, SF3B1), ~ !is.na(.))) %>%
+    mutate(complex = ifelse(complex == "complex", 1, 0)) %>%
     mutate(sub_group = classifySamples(.),
     mol_manual = classifySamplesTaxonomy(.)) %>%
     left_join(molecular_class %>% select(ID, MOLECULAR_GROUP), by = "ID")
@@ -81,21 +88,22 @@ IWS_dataset_filt <- subset(IWS_mds, ID %in% IWS_dataset$ID)
 
 ## Preprocess GESMD 
 load("data/GESMD/gesmd_data_1125.Rdata")
-gesmd <- gesmd_data_1125 %>%
+gesmd <- gesmd_data_1125_filt %>%
     mutate(ID = as.character(register_number),
           WHO_2016 = who2017)
 
-gesmd_dataset <- gesmd %>%
-    mutate(PLT = log(PLT),
-    TP53mono = ifelse(TP53 == 1 & TP53multi == 0, 1, 0)) %>% 
-    filter(consensus %in% c("Low blasts", "MDS-IB1", "MDS-IB2")) %>%
+gesmd_full <- gesmd %>%
     filter(!WHO_2016 %in% c("WHO2017_LMA", "WHO2017_LMMC", "WHO2017_LMMC_0", 
         "WHO2017_LMMC_1", "WHO2017_LMMC_2", "WHO2017_LMMCX", "WHO2017_OTROS", 
         "WHO2017_SMD_SMP_INCLASIFICABLE", "WHO2017_SMD_SMP_SA_T", 
-        "WHO2017_SMD_INCLASIFICABLE")) %>% ## Filtro GESMD
-    filter(SF3B1 == 0 & del5q == 0) %>% ## Remove SF3B1 and del5q
+        "WHO2017_SMD_INCLASIFICABLE")) %>%
+    filter(!is.na(TP53)) %>%
     filter(WBC < 20 & ANC < 40) %>%
-    filter(if_all(c(BM_BLAST, EZH2, STAG2, del7, TET2bi), ~ !is.na(.))) %>%
+    mutate(TP53mono = ifelse(TP53 == 1 & TP53multi == 0, 1, 0))  
+
+gesmd_dataset <- gesmd_full %>% 
+    filter(consensus %in% c("Low blasts", "MDS-IB1", "MDS-IB2")) %>%
+    filter(if_all(c(BM_BLAST, EZH2, STAG2, del7, TET2bi, del5q, SF3B1, complex), ~ !is.na(.))) %>%
     mutate(sub_group = classifySamples(.),
     mol_manual = classifySamplesTaxonomy(.)) 
 
@@ -103,15 +111,22 @@ ipssm_process <- IPSSMprocess(gesmd_dataset)
 ipssm_res <- IPSSMmain(ipssm_process)
 ipssm_annot <- IPSSMannotate(ipssm_res)
 
-gesmd_dataset <- gesmd_dataset %>%
-    select(-IPSSM) %>%
-    left_join(ipssm_annot %>% 
+gesmd_ipssm <-  ipssm_annot %>% 
     mutate(IPSSM = IPSSMcat_mean,
     IPSSM = gsub(" ", "-", IPSSM , fixed = TRUE),
     IPSSM_SCORE = IPSSMscore_mean) %>%
-    select(ID, IPSSM, IPSSM_SCORE), by = "ID") 
+    select(ID, IPSSM, IPSSM_SCORE)
+
+gesmd_dataset <- gesmd_dataset %>%
+    rows_patch(y = select(gesmd_ipssm, -IPSSM_SCORE), by = "ID") %>%
+    left_join(select(gesmd_ipssm, -IPSSM), by = "ID")
 
 gesmd_cluster <- subset(gesmd_dataset, ID %in% gesmd_dataset_filt$ID)
+
+## MLL
+load("results/hershberger/hershberger_mds.Rdata")
+load("results/hershberger/hershberger_mds.Rdata")
+load("results/hershberger/hershberger_full.Rdata")
 
 ## Compute descriptives
 getIQR <- function(vec){
@@ -141,9 +156,12 @@ summarize_fun <- function(df){
             `Monocyte Count` = getIQR(MONOCYTES),
             HB = getIQR(HB),
             PLT = getIQR(PLT),
-            `Low blasts` = getProp(consensus == "Low blasts", consensus),
+            `MDS-LB` = getProp(consensus == "Low blasts", consensus),
             `MDS-IB1` = getProp(consensus == "MDS-IB1", consensus),
             `MDS-IB2` = getProp(consensus == "MDS-IB2", consensus),
+            `del5q` = getProp(consensus == "del5q", consensus),
+            `SF3B1` = getProp(consensus == "mutated SF3B1", consensus),
+            `TP53` = getProp(consensus == "mutated TP53", consensus),
             `IPSSM Very-Low` = getProp(IPSSM == "Very-Low", IPSSM),
             `IPSSM Low` = getProp(IPSSM == "Low", IPSSM),
             `IPSSM Moderate-Low` = getProp(IPSSM == "Moderate-Low", IPSSM),
@@ -202,12 +220,6 @@ descriptives_cluster2 <- cluster_comb2 %>%
     t() %>%
     as_tibble(rownames = "Variable")
 
-write.table(descriptives_cluster2, 
-            file = "results/GESMD_IWS_clustering/clust_samples_input_descriptives.txt", 
-            sep = "\t", 
-            quote = FALSE, 
-            col.names = NA)
-
 
 ## Tests
 poisson_test <- function(var, df){
@@ -234,32 +246,51 @@ clust_test
 mutations_test <- sapply(all_variables[!all_variables %in% clin_vars], chisq_test, df = cluster_comb2)
 descriptives_cluster2$Test <- c(NA, clust_test[clin_vars], mutations_test)
 
-
-
-## Compute descriptives for GESMD and IWS full cohorts
-full_dataset <- rbind(gesmd_dataset %>% mutate(dataset = "GESMD") %>%
-    select(names(clust_test), dataset), 
-    IWS_mds %>% mutate(dataset = "IWS") %>%
-    select(names(clust_test), dataset)) %>%
-    mutate(dataset = factor(dataset, levels = c("IWS", "GESMD")))
-
-descriptives_full <- full_dataset %>%
-    group_by(dataset) %>%
-    summarize_fun() %>% 
-    t()
-
-write.table(descriptives_full, 
-            file = "results/GESMD_IWS_clustering/all_samples_descriptives.txt", 
+write.table(descriptives_cluster2, 
+            file = "results/GESMD_IWS_clustering/clust_samples_input_descriptives.txt", 
             sep = "\t", 
             quote = FALSE, 
             col.names = NA)
 
-all_test <- c(sapply(c("SEX", "consensus", "IPSSM"), chisq_test, df = full_dataset),
-            sapply(c("AGE", "HB", "PLT"), lm_test, df = full_dataset),
-            sapply(c("BM_BLAST", "WBC", "ANC", "MONOCYTES"), poisson_test, df = full_dataset))
-all_test
 
-save(gesmd_dataset, IWS_mds, file = "results/GESMD_IWS_clustering/gesmd_IWS_full.Rdata")
+
+## Compute descriptives for GESMD and IWS full cohorts
+mds_morph_dataset <- bind_rows(
+    gesmd_dataset %>% mutate(dataset = "GESMD"),
+    IWS_mds %>% mutate(dataset = "IWS"),
+    hersh_mds %>% mutate(dataset = "MLL", 
+        consensus = ifelse(WHO == "MDS-LB", "Low blasts", WHO),
+        IPSSM = gsub(" ", "-", IPSSM))) %>%
+    mutate(dataset = factor(dataset, levels = c("IWS", "GESMD", "MLL")))
+
+descriptives_mds <- mds_morph_dataset %>%
+    group_by(dataset) %>%
+    summarize_fun() %>% 
+    t()
+
+write.table(descriptives_mds, 
+            file = "results/GESMD_IWS_clustering/mds_morph_samples_descriptives.txt", 
+            sep = "\t", 
+            quote = FALSE, 
+            col.names = NA)
+
+poisson_test_f <- function(var, df){
+    poiss_lm <- glm(formula (paste(var, " ~ dataset")), df, 
+                    family = "poisson")
+    anova(a, test = "Chisq")$`Pr(>Chi)`[2]
+}
+
+lm_test_f <- function(var, df){
+    lm_res <- summary(lm(formula (paste(var, " ~ dataset")), df))
+    pf(lm_res$fstatistic[1], lm_res$fstatistic[2], lm_res$fstatistic[3], lower.tail = FALSE)
+}
+mds_test <- c(sapply(c("SEX", "consensus", "IPSSM"), chisq_test, df = mds_morph_dataset),
+            sapply(c("AGE", "HB", "PLT"), lm_test_f, df = mds_morph_dataset),
+            sapply(c("BM_BLAST", "WBC", "ANC", "MONOCYTES"), poisson_test, df = mds_morph_dataset))
+mds_test
+
+save(gesmd_dataset, IWS_mds, file = "results/GESMD_IWS_clustering/gesmd_IWS_mds.Rdata")
+save(gesmd_full, IWS_full, file = "results/GESMD_IWS_clustering/gesmd_IWS_full.Rdata")
 
 
 

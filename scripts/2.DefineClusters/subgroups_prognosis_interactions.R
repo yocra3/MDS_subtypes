@@ -46,18 +46,19 @@ gesmd_full <- gesmd %>%
     filter(!is.na(TP53))
 
 joint_full <- bind_rows(
-    IWS_full %>% mutate(dataset = "IWS") %>% select(-complex),
-    gesmd_full %>% mutate(dataset = "GESMD") %>% select(-complex)
+    IWS_full %>% mutate(dataset = "IWS") %>% mutate(complex = ifelse(complex == "complex", 1, 0)),
+    gesmd_full %>% mutate(dataset = "GESMD")
 )
 
 joint_mds <- bind_rows(
-    IWS_mds %>% mutate(dataset = "IWS") %>% select(-complex),
-    gesmd_dataset %>% mutate(dataset = "GESMD") %>% select(-complex)
+    IWS_mds %>% mutate(dataset = "IWS"),
+    gesmd_dataset %>% mutate(dataset = "GESMD") 
 )
 
 
 ## Overall survival
-colors6 <- c("#E69F00", "#56B4E9", "#009E73", "#CC79A7", "#999999", "grey40",  "black")
+colors <- c("#E69F00", "#56B4E9", "#009E73", "#CC79A7", "#F0E442", "#0072B2", 
+    "#D55E00", "#999999", "grey40",  "black")
 
 surv_IWS <- survfit(formula = Surv(OS_YEARS,OS_STATUS) ~ sub_group, IWS_mds) %>%
     ggsurvplot(data = IWS_mds, surv.median.line = "hv", palette = colors6,
@@ -95,10 +96,6 @@ joint_prognosis_plot <- bind_rows(
     select(ends_with("STATUS"), ends_with("YEARS"), IPSSM, IPSSM_SCORE,  mol_manual, sub_group, AGE, SEX, dataset, BM_BLAST)
 ) %>%
     mutate(dataset = factor(dataset, levels = c("IWS", "GESMD")),
-    group2 = case_when(
-        sub_group %in% c("Low blasts", "MDS-IB1", "MDS-IB2") ~ "Original",
-        TRUE ~ sub_group
-    ) %>% factor(levels = c("Original", c("EZH2", "TET2 bi-allelic", "7-", "STAG2"))),
      IPSSM = factor(IPSSM, levels = c( "Very-Low", "Low", "Moderate-Low", "Moderate-High", "High", "Very-High"))) 
 
 
