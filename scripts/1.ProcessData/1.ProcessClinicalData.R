@@ -69,10 +69,10 @@ clinical <- mutate(clin_comb,
     PLT = round(PLT, 0),
     RINGED_SIDEROBLASTS = ifelse(is.na(RINGED_SIDEROBLASTS), 0, RINGED_SIDEROBLASTS), 
     ## Compute consensus MDS sub-types
-    consensus = ifelse(TP53multi == 1 & BM_BLAST <= 20, "Mutated TP53",
-      ifelse(del5q == 1 & del7q == 0 & BM_BLAST <= 5, "del5q",
-        ifelse(SF3B1 > 0 & del7q == 0 & complex == "non-complex" & BM_BLAST <= 5, "mutated SF3B1",
-          ifelse(BM_BLAST <= 5, "Low blasts",
+    consensus = ifelse(TP53multi == 1 & BM_BLAST <= 20, "MDS-TP53",
+      ifelse(del5q == 1 & del7q == 0 & del7 == 0 & BM_BLAST <= 5 & N_aberrations < 3 & complex == "non-complex", "MDS-del5q",
+        ifelse(SF3B1 > 0 & del7q == 0 & del7 == 0 & RUNX1 == 0 & complex == "non-complex" & BM_BLAST <= 5, "MDS-SF3B1",
+          ifelse(BM_BLAST <= 5, "MDS-LB",
             ifelse(BM_BLAST > 10, "MDS-IB2",
               ifelse(BM_BLAST > 5 & BM_BLAST <= 10, "MDS-IB1", "Other"))))))
 ) %>%

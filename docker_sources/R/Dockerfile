@@ -33,3 +33,9 @@ RUN R -e 'BiocManager::install(c("forestploter", "DESeq2", "edgeR", "limma", "Ne
 
 # Install genes annotation (v.1.8)
 RUN R -e 'BiocManager::install(c("EnsDb.Hsapiens.v86"))'
+
+# Install newer plotting packages (v.1.9)
+RUN R -e 'BiocManager::install(c("ComplexHeatmap", "patchwork"))'
+
+# Install newer plotting packages2 (v.1.10)
+RUN R -e 'BiocManager::install(c("ggh4x", "ggplot2"))'

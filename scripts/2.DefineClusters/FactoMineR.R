@@ -9,7 +9,7 @@
 #' Notes:
 #'
 #' Docker command:   
-#' docker run -it -v $PWD:$PWD -w $PWD mds_subtypes_rsession:1.6 R
+#' docker run --rm -it -v $PWD:$PWD -w $PWD mds_subtypes_rsession:1.6 R
 #'
 #' ---------------------------
 #' 
@@ -46,7 +46,7 @@ mut_vars <- mutations[!mutations %in% c("ID")]
 
 IWS_dataset <- clinical %>%
     mutate(PLT = log(PLT)) %>% 
-    filter(consensus %in% c("Low blasts", "MDS-IB1", "MDS-IB2")) %>%
+    filter(consensus %in% c("MDS-LB", "MDS-IB1", "MDS-IB2")) %>%
     filter(!WHO_2016 %in% c("aCML", "CMML", "MDS/MPN-RS-T", "MDS/MPN-U", "other")) %>% ## Filtro IWS
   #   filter(SF3B1 == 0 & del5q == 0) %>% ## Remove SF3B1 and del5q
     select(all_of(c(mut_vars, kar_events, clin_vars, "ID"))) %>%

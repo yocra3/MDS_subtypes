@@ -21,26 +21,25 @@
 library(tidyverse)
 library(ipssm)
 library(readxl)
-library(pheatmap)
 
 load("results/clustering/MFA_results.Rdata")
 
 classifySamples <- function(df){
     new_class <- case_when(
-    df$EZH2 == 1        ~ "EZH2",
-    df$TET2bi == 1      ~ "TET2 bi-allelic",
     df$complex == 1     ~ "Complex",
-    df$del7 == 1       ~ "7-",
-    df$del5q == 1      ~ "del5q",
-    df$SF3B1 == 1      ~ "SF3B1",
+    df$del5q == 1      ~ "del5q-IB",
+    df$SF3B1 == 1      ~ "SF3B1-IB",
+    df$EZH2 == 1        ~ "EZH2",
+    df$TET2bi == 1      ~ "TET2-bi",
+    df$del7 == 1       ~ "-7",
     df$STAG2 == 1       ~ "STAG2",
-    df$BM_BLAST <= 5    ~ "Low blasts",
+    df$BM_BLAST <= 5    ~ "MDS-LB",
     df$BM_BLAST > 10    ~ "MDS-IB2",
     df$BM_BLAST > 5 & df$BM_BLAST <= 10 ~ "MDS-IB1",
     TRUE                ~ "Other" 
   )
-  factor(new_class, levels = c("EZH2", "TET2 bi-allelic",  "7-", "STAG2", "del5q", "SF3B1", "Complex",
-      "Low blasts", "MDS-IB1", "MDS-IB2"))
+  factor(new_class, levels = c("EZH2", "TET2-bi",  "-7", "STAG2", "del5q-IB", "SF3B1-IB", "Complex",
+      "MDS-LB", "MDS-IB1", "MDS-IB2"))
 }
 
 classifySamplesTaxonomy <- function(df){
@@ -124,7 +123,6 @@ gesmd_dataset <- gesmd_dataset %>%
 gesmd_cluster <- subset(gesmd_dataset, ID %in% gesmd_dataset_filt$ID)
 
 ## MLL
-load("results/hershberger/hershberger_mds.Rdata")
 load("results/hershberger/hershberger_mds.Rdata")
 load("results/hershberger/hershberger_full.Rdata")
 
@@ -291,6 +289,4 @@ mds_test
 
 save(gesmd_dataset, IWS_mds, file = "results/GESMD_IWS_clustering/gesmd_IWS_mds.Rdata")
 save(gesmd_full, IWS_full, file = "results/GESMD_IWS_clustering/gesmd_IWS_full.Rdata")
-
-
 
