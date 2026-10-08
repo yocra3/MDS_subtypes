@@ -10,7 +10,7 @@
 #' Make figures for subgroups exploration
 #' 
 #' Docker command:   
-#' docker run --rm -it -v $PWD:$PWD -w $PWD mds_subtypes_rsession:1.9 R
+#' docker run --rm -it -v $PWD:$PWD -w $PWD mds_subtypes_rsession:1.10 R
 #'
 #' ---------------------------
 
@@ -21,6 +21,7 @@ library(cowplot)
 library(ComplexHeatmap)
 library(survminer)
 library(survival)
+library(ggh4x)
 
 load("results/GESMD_IWS_clustering/gesmd_IWS_mds.Rdata")
 load("results/GESMD_IWS_clustering/gesmd_IWS_full.Rdata")
@@ -64,23 +65,24 @@ joint_full_subgroup <- left_join(select(joint_full, -sub_group) , select(joint_m
     mutate(sub_group_comb = ifelse(is.na(sub_group), consensus, as.character(sub_group)),
     sub_group_comb = case_when(
         sub_group_comb %in% c("mutated SF3B1", "MDS-SF3B1") ~ "SF3B1",
-        sub_group_comb == "MDS-5q" ~ "del5q",
+        sub_group_comb %in% c("MDS-5q", "MDS-del5q") ~ "del5q",
         sub_group_comb %in% c("Mutated TP53", "MDS-TP53") ~ "TP53",
         sub_group_comb == "Low blasts" ~ "MDS-LB",
         TRUE ~ sub_group_comb
     ))
 
 ## Define dataset for comparison
-groups <- c("TP53", "Complex", "del5q", "del5q-IB", "SF3B1", "SF3B1-IB",  "MDS-IB1", "MDS-IB2")
+groups <- c("TP53", "Complex", "del5q", "del5q-HR", "SF3B1", "SF3B1-HR",  "MDS-IB1", "MDS-IB2")
 
-joint_full_filter <- filter(joint_full_subgroup, sub_group_comb %in% groups) 
+joint_full_filter <- filter(joint_full_subgroup, sub_group_comb %in% groups) %>%
+    mutate(dataset = factor(dataset, levels = c("IWS", "GESMD", "MLL")))
 joint_full_filter$sub_group_comb <- factor(joint_full_filter$sub_group_comb, levels = groups)
 
 clin_joint <- filter(joint_full_filter, dataset %in% c("IWS", "GESMD"))
 hersh_filt <- filter(joint_full_filter, dataset == "MLL") %>%
     select(-ANC, -MONOCYTES) 
 
-colors <- c("#FF9E59", "#7A3500", "#FFF9AE", "#B8A600", "#56B4E9", "#003E61",  "grey40",  "black")
+colors <- c("#FF9E59", "#7A3500", "#FFCC00", "#B8A600", "#56B4E9", "#003E61",  "grey40",  "black")
 
 ## Clinical variables
 clin_vars <- c("BM_BLAST", "PB_BLAST", "WBC", "ANC", "MONOCYTES", "HB", "PLT")
@@ -223,23 +225,38 @@ colores_monocitos <- c("#CFD8DC", "#4FC3F7", "#FB8C00")
 colores_hb <- c("#F8BBD0", "#F06292", "#E91E63", "#880E4F")
 colores_plt <- c("#C8E6C9", "#81C784", "#43A047", "#1B5E20")
 
-
 makeBarPlot <- function(df, var){
-    df$dataset <- fct_rev(df$dataset)
-   ggplot(df, aes(x = dataset, fill = Cell_class)) +
-    geom_bar(position = "fill") +
-    facet_grid(sub_group_comb ~ .) +
-    coord_flip() +
-    theme_bw() +
-    guides(fill = guide_legend(ncol = 2)) +
-    theme(legend.position = "top",
-    legend.direction = "vertical",
-    axis.text.y = element_blank(),
-         strip.text = element_blank(),
-          strip.background = element_blank(),
-        plot.margin = margin(r = 1, l = 1, unit = "pt")) +
-    xlab("") +
-    scale_y_continuous(name = "", labels = scales::label_percent())
+    #df$dataset <- fct_rev(df$dataset)
+    df2 <- df %>%
+        mutate(sub_group = fct_relevel(sub_group_comb, groups)) %>%
+        group_by(sub_group, dataset) %>% 
+        mutate(dataset2 = paste0(dataset, " (", n(), ")")) 
+
+    levs <- arrange(df2, desc(dataset)) %>% pull(dataset2) %>% unique()
+    df2$dataset2 <- factor(df2$dataset2, levels = levs)
+
+    ggplot(df2, aes(y = dataset2, fill = Cell_class)) +
+        geom_bar(position = "fill", orientation = "y") + 
+        facet_grid2(sub_group ~ ., 
+                    switch = "y", 
+                    scales = "free_y",
+                    independent = "y",
+                    strip = strip_themed(
+                        background_y = elem_list_rect(fill = colors)
+                ))+
+        theme_bw() +
+        guides(fill = guide_legend(ncol = 2)) +
+        theme(
+            legend.position = "top",
+            legend.direction = "vertical",
+            axis.text.y = element_blank(),
+            axis.ticks.y = element_blank(),
+            strip.text.y = element_blank(),
+            plot.margin = margin(r = 1, l = 1, unit = "pt")
+        ) +
+        xlab("") +
+        scale_x_continuous(name = "", labels = scales::label_percent()) +
+        scale_y_discrete(name = "", position = "right")
 }
 
 ## BM blasts
@@ -315,17 +332,19 @@ plt_plot <- joint_full_filter %>%
     makeBarPlot() +
     scale_fill_manual(name = "PLT", values = colores_plt)
 
-clin_panel <- plot_grid(blast_plot + theme(axis.text.y = element_text()), 
+clin_panel <- plot_grid(blast_plot + theme(strip.text = element_text(),
+    strip.text.y.left = element_text(angle = 0, color = "white", face = "bold")),
     wbc_plot , 
     hb_plot , 
-    plt_plot + theme(strip.text = element_text(), strip.background = element_rect()), 
-    nrow = 1)
+    plt_plot + theme(axis.text.y = element_text(), axis.ticks.y = element_line()), 
+    nrow = 1, rel_widths = c(1.2, 1, 1, 1.5))
 png("figures/GESMD_IWS_clustering/classical_groups_exploration/clin_vars_subgroups_barplot.png", width = 3000, height = 2300, res = 300)
 clin_panel
 dev.off()
 
-clin_panel_sup <- plot_grid(mono_plot + theme(axis.text.y = element_text()), 
-    anc_plot + theme(strip.text = element_text(), strip.background = element_rect()), 
+clin_panel_sup <-plot_grid(mono_plot + theme(strip.text = element_text(),
+    strip.text.y.left = element_text(angle = 0, color = "white", face = "bold")), 
+    anc_plot + theme(axis.text.y = element_text(), axis.ticks.y = element_line()), 
     nrow = 1)
 
 png("figures/GESMD_IWS_clustering/classical_groups_exploration/clin_vars_subgroups_barplot_sup.png", width = 2000, height = 2300, res = 300)
@@ -442,7 +461,7 @@ ipssm_summary <- joint_full_filter %>% filter(!is.na(IPSSM) ) %>%
          "VH" = "Very-High",
          "VH" = "Very High"),
          IPSSM = factor(IPSSM, levels = c("VL", "L", "ML", "MH", "H", "VH"))) %>%
-  ggplot(aes(x = fct_rev(dataset), y = Freq*100, fill = fct_rev(IPSSM))) +
+  ggplot(aes(y = fct_rev(dataset), x = Freq*100, fill = fct_rev(IPSSM))) +
   geom_bar(stat = "identity") +
   theme_bw() +
   scale_fill_manual(values = c("#d73027", "#f46d43", "#fdae61", "#fee08b", "#66bd63", "#2ca25f")) +
@@ -451,11 +470,19 @@ ipssm_summary <- joint_full_filter %>% filter(!is.na(IPSSM) ) %>%
     y = "",
     x = "",
     fill = "IPSSM") +
-    facet_grid(sub_group_comb ~ .) +
-   coord_flip() +
+         facet_grid2(sub_group_comb ~ ., 
+                    switch = "y",
+                    scales = "free_y",
+                    independent = "y",
+                    strip = strip_themed(
+                        background_y = elem_list_rect(fill = colors),
+                        text_y = elem_list_text(color = "white", face = "bold")
+                ))    +
   theme(plot.title = element_text(hjust = 0.5),
-  legend.position = "top", strip.background = element_rect()) 
-png("figures/GESMD_IWS_clustering/classical_groups_exploration/IPSSM_summary.png", res = 300, height = 900, width = 3000)
+  legend.position = "right", strip.background = element_rect()
+  ) +
+  scale_y_discrete(position = "right")
+png("figures/GESMD_IWS_clustering/classical_groups_exploration/IPSSM_summary.png", res = 300, height = 2000, width = 1300)
 ipssm_summary
 dev.off()
 
@@ -485,17 +512,6 @@ summary(lm(AGE ~ sub_group_comb + dataset, mutate(clin_joint, sub_group_comb = r
 
 
 
-ht_grob <- grid.grabExpr(draw(mut_heatmap))
-png("figures/GESMD_IWS_clustering/classical_groups_exploration/panel_summary.png", res = 300, height = 4700, width = 3500)
-plot_grid(
-    plot_grid(clin_panel, ipssm_summary, ncol = 2, rel_widths = c(2, 1), labels = c("A", "C")),
-    ht_grob, ncol = 1, labels = c("", "B"), rel_heights = c(1, 1)
-)
-dev.off()
-
-
-
-
 surv_all <- survfit(formula = Surv(OS_YEARS,OS_STATUS) ~ sub_group_comb, joint_full_filter) %>%
     ggsurvplot(data = joint_full_filter, surv.median.line = "hv", palette = colors,
      risk.table = TRUE, break.time.by = 2, xlim = c(0, 10),
@@ -503,6 +519,17 @@ surv_all <- survfit(formula = Surv(OS_YEARS,OS_STATUS) ~ sub_group_comb, joint_f
 png("figures/GESMD_IWS_clustering/classical_groups_exploration/OS_subgroups_survival.png", width = 1500, height = 2000, res = 300)
 surv_all$plot + theme(plot.title = element_text(hjust = 0.5)) + labs(title = "Overall Survival by sub-group", x = "Time (years)", y = "Survival probability", color = "Sub-group")
 dev.off()
+
+
+ht_grob <- grid.grabExpr(draw(mut_heatmap))
+png("figures/GESMD_IWS_clustering/classical_groups_exploration/panel_summary.png", res = 300, height = 4700, width = 3500)
+plot_grid(
+    plot_grid(clin_panel,plot_grid(surv_all$plot + theme(legend.position = "none"), surv_all$table, ncol = 1, rel_heights = c(1.6, 1)),
+     ncol = 2, rel_widths = c(1.5, 1), labels = c("A", "C")),
+    ht_grob, ncol = 1, labels = c("", "B"), rel_heights = c(1, 1)
+)
+dev.off()
+
 
 
 joint_full_filter %>%

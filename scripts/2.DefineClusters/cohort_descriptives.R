@@ -27,44 +27,44 @@ load("results/clustering/MFA_results.Rdata")
 classifySamples <- function(df){
     new_class <- case_when(
     df$complex == 1     ~ "Complex",
-    df$del5q == 1      ~ "del5q-IB",
-    df$SF3B1 == 1      ~ "SF3B1-IB",
-    df$EZH2 == 1        ~ "EZH2",
-    df$TET2bi == 1      ~ "TET2-bi",
+    df$del5q == 1      ~ "del5q-HR",
+    df$SF3B1 == 1      ~ "SF3B1-HR",
     df$del7 == 1       ~ "-7",
+    df$EZH2 == 1        ~ "EZH2",
     df$STAG2 == 1       ~ "STAG2",
+    df$TET2bi == 1      ~ "TET2-bi",
     df$BM_BLAST <= 5    ~ "MDS-LB",
     df$BM_BLAST > 10    ~ "MDS-IB2",
     df$BM_BLAST > 5 & df$BM_BLAST <= 10 ~ "MDS-IB1",
     TRUE                ~ "Other" 
   )
-  factor(new_class, levels = c("EZH2", "TET2-bi",  "-7", "STAG2", "del5q-IB", "SF3B1-IB", "Complex",
+  factor(new_class, levels = c("EZH2", "TET2-bi",  "-7", "STAG2", "del5q-HR", "SF3B1-HR", "Complex",
       "MDS-LB", "MDS-IB1", "MDS-IB2"))
 }
 
-classifySamplesTaxonomy <- function(df){
-    new_class <- case_when(
-    df$DDX41 == 1       ~ "DDX41",
-    df$NPM1 == 1 | (df$FLT3 == 1 & df$NPM1 == 1) ~ "AML-like",
-    df$TP53multi == 1 | df$complex == 1 ~ "TP53-complex",
-    df$del7 == 1 | df$SETBP1 == 1       ~ "7-/SETBP1",
-    df$del5q == 1      ~ "del(5q)",
-    df$EZH2 == 1 & df$ASXL1 == 1  ~ "EZH2-ASXL1",
-    df$IDH2 == 1 | df$IDH1 == 1 | (df$STAG2 == 1 & df$ASXL1 == 1) | (df$STAG2 == 1 & df$SRSF2 == 1) ~ "IDH-STAG2",
-    df$BCOR == 1 | df$BCORL1 == 1 ~ "BCOR/L1",
-    df$TET2bi == 1 | (df$TET2other == 1 & df$SRSF2 == 1) ~ "bi-TET2",
-    df$U2AF1 == 1 ~ "U2AF1",
-    df$SRSF2 == 1 ~ "SRSF2",
-    df$ZRSR2 == 1 ~ "ZRSR2",
-    df$SF3B1 == 1 ~ "SF3B1",
-    df$DNMT3A == 1 | df$TET2 == 1 | df$TP53mono == 1 | df$delY == 1 ~ "CCUS-like",
-    TRUE                ~ "Other" 
-  )
-  factor(new_class)
-}
+# classifySamplesTaxonomy <- function(df){
+#     new_class <- case_when(
+#     df$DDX41 == 1       ~ "DDX41",
+#     df$NPM1 == 1 | (df$FLT3 == 1 & df$NPM1 == 1) ~ "AML-like",
+#     df$TP53multi == 1 | df$complex == 1 ~ "TP53-complex",
+#     df$del7 == 1 | df$SETBP1 == 1       ~ "7-/SETBP1",
+#     df$del5q == 1      ~ "del(5q)",
+#     df$EZH2 == 1 & df$ASXL1 == 1  ~ "EZH2-ASXL1",
+#     df$IDH2 == 1 | df$IDH1 == 1 | (df$STAG2 == 1 & df$ASXL1 == 1) | (df$STAG2 == 1 & df$SRSF2 == 1) ~ "IDH-STAG2",
+#     df$BCOR == 1 | df$BCORL1 == 1 ~ "BCOR/L1",
+#     df$TET2bi == 1 | (df$TET2other == 1 & df$SRSF2 == 1) ~ "bi-TET2",
+#     df$U2AF1 == 1 ~ "U2AF1",
+#     df$SRSF2 == 1 ~ "SRSF2",
+#     df$ZRSR2 == 1 ~ "ZRSR2",
+#     df$SF3B1 == 1 ~ "SF3B1",
+#     df$DNMT3A == 1 | df$TET2 == 1 | df$TP53mono == 1 | df$delY == 1 ~ "CCUS-like",
+#     TRUE                ~ "Other" 
+#   )
+#   factor(new_class)
+# }
 
 
-molecular_class <- read_xlsx("data/BLOOD_BLD-2023-023727-mmc1.xlsx", sheet = "Table S3 (full database)") 
+# molecular_class <- read_xlsx("data/BLOOD_BLD-2023-023727-mmc1.xlsx", sheet = "Table S3 (full database)") 
 
 
 
@@ -76,12 +76,14 @@ IWS_full <- clinical %>%
     mutate(PLT2 = pmin(PLT, 250))
 
 IWS_mds <- IWS_full %>%
-    filter(consensus %in% c("Low blasts", "MDS-IB1", "MDS-IB2")) %>%
+    filter(consensus %in% c("MDS-LB", "MDS-IB1", "MDS-IB2")) %>%
     filter(if_all(c(BM_BLAST, EZH2, STAG2, del7, TET2bi, del5q, SF3B1), ~ !is.na(.))) %>%
     mutate(complex = ifelse(complex == "complex", 1, 0)) %>%
     mutate(sub_group = classifySamples(.),
-    mol_manual = classifySamplesTaxonomy(.)) %>%
-    left_join(molecular_class %>% select(ID, MOLECULAR_GROUP), by = "ID")
+    )
+    #mol_manual = classifySamplesTaxonomy(.)
+    #) %>%
+   # left_join(molecular_class %>% select(ID, MOLECULAR_GROUP), by = "ID")
 IWS_dataset_filt <- subset(IWS_mds, ID %in% IWS_dataset$ID)
 
 
@@ -101,11 +103,11 @@ gesmd_full <- gesmd %>%
     mutate(TP53mono = ifelse(TP53 == 1 & TP53multi == 0, 1, 0))  
 
 gesmd_dataset <- gesmd_full %>% 
-    filter(consensus %in% c("Low blasts", "MDS-IB1", "MDS-IB2")) %>%
+    filter(consensus %in% c("MDS-LB", "MDS-IB1", "MDS-IB2")) %>%
     filter(if_all(c(BM_BLAST, EZH2, STAG2, del7, TET2bi, del5q, SF3B1, complex), ~ !is.na(.))) %>%
     mutate(sub_group = classifySamples(.),
-    mol_manual = classifySamplesTaxonomy(.)) 
-
+    #mol_manual = classifySamplesTaxonomy(.)) 
+    )
 ipssm_process <- IPSSMprocess(gesmd_dataset)
 ipssm_res <- IPSSMmain(ipssm_process)
 ipssm_annot <- IPSSMannotate(ipssm_res)
@@ -154,12 +156,9 @@ summarize_fun <- function(df){
             `Monocyte Count` = getIQR(MONOCYTES),
             HB = getIQR(HB),
             PLT = getIQR(PLT),
-            `MDS-LB` = getProp(consensus == "Low blasts", consensus),
+            `MDS-LB` = getProp(consensus == "MDS-LB", consensus),
             `MDS-IB1` = getProp(consensus == "MDS-IB1", consensus),
             `MDS-IB2` = getProp(consensus == "MDS-IB2", consensus),
-            `del5q` = getProp(consensus == "del5q", consensus),
-            `SF3B1` = getProp(consensus == "mutated SF3B1", consensus),
-            `TP53` = getProp(consensus == "mutated TP53", consensus),
             `IPSSM Very-Low` = getProp(IPSSM == "Very-Low", IPSSM),
             `IPSSM Low` = getProp(IPSSM == "Low", IPSSM),
             `IPSSM Moderate-Low` = getProp(IPSSM == "Moderate-Low", IPSSM),
@@ -257,7 +256,7 @@ mds_morph_dataset <- bind_rows(
     gesmd_dataset %>% mutate(dataset = "GESMD"),
     IWS_mds %>% mutate(dataset = "IWS"),
     hersh_mds %>% mutate(dataset = "MLL", 
-        consensus = ifelse(WHO == "MDS-LB", "Low blasts", WHO),
+    consensus = WHO,
         IPSSM = gsub(" ", "-", IPSSM))) %>%
     mutate(dataset = factor(dataset, levels = c("IWS", "GESMD", "MLL")))
 
@@ -275,7 +274,7 @@ write.table(descriptives_mds,
 poisson_test_f <- function(var, df){
     poiss_lm <- glm(formula (paste(var, " ~ dataset")), df, 
                     family = "poisson")
-    anova(a, test = "Chisq")$`Pr(>Chi)`[2]
+    anova(poiss_lm, test = "Chisq")$`Pr(>Chi)`[2]
 }
 
 lm_test_f <- function(var, df){
@@ -284,9 +283,26 @@ lm_test_f <- function(var, df){
 }
 mds_test <- c(sapply(c("SEX", "consensus", "IPSSM"), chisq_test, df = mds_morph_dataset),
             sapply(c("AGE", "HB", "PLT"), lm_test_f, df = mds_morph_dataset),
-            sapply(c("BM_BLAST", "WBC", "ANC", "MONOCYTES"), poisson_test, df = mds_morph_dataset))
+            sapply(c("BM_BLAST", "WBC", "ANC", "MONOCYTES"), poisson_test_f, df = mds_morph_dataset))
 mds_test
+
+
+mds_morph_tab <- mds_morph_dataset %>%
+    group_by(sub_group, dataset) %>%
+    summarize(N = n()) %>%
+    group_by(dataset) %>%
+    mutate(val = sprintf("%i (%.1f%%)", N, N/sum(N)*100)) %>%
+    select(-N) %>%
+    pivot_wider(names_from = dataset, values_from = val) 
+
+write.table(mds_morph_tab, 
+            file = "results/GESMD_IWS_clustering/mds_morph_subgroup_distribution.txt", 
+            sep = "\t", 
+            quote = FALSE, 
+            col.names = NA)
+
 
 save(gesmd_dataset, IWS_mds, file = "results/GESMD_IWS_clustering/gesmd_IWS_mds.Rdata")
 save(gesmd_full, IWS_full, file = "results/GESMD_IWS_clustering/gesmd_IWS_full.Rdata")
 
+summary(lm(AGE ~ dataset == "GESMD", mds_morph_dataset))

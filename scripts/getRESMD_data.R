@@ -56,6 +56,25 @@ all_diagnosis$who2017[is.na(all_diagnosis$who2017) & all_diagnosis$who2008=="WHO
 all_diagnosis$who2017[is.na(all_diagnosis$who2017) & all_diagnosis$who2008=="WHO2008_AREB_2"] <- "WHO2017_SMD_EB_2"
 all_diagnosis$who2017[is.na(all_diagnosis$who2017) & all_diagnosis$who2008=="WHO2008_ARS"] <- "WHO2017_SMD_SA_DU"
 
+## Evolution ####
+evolution <- dbGetQuery(con, 
+                            sprintf("select register_number, who2017_type_id, evol_date
+  from patient pr 
+  join evolution_data ed on pr.id = ed.id 
+  where register_number = any(array[%s])", all_register))  %>%
+  as_tibble() 
+
+evolution_type <- unique(evolution$who2017_type_id)
+evolution_type <- evolution_type[!is.na(evolution_type)]
+codigos_evo <- dbGetQuery(con, 
+                             paste("select id, code from list_item where id in (", 
+                                   paste(evolution_type, collapse = ","), ")")
+) %>%
+  mutate(who2017_evo = code) %>%
+  select(-code)
+
+evolution2 <- left_join(evolution, codigos_evo, 
+                            by = join_by(who2017_type_id == id))
 
 ## Estado ####
 estado_actual <- dbGetQuery(con, 
@@ -92,9 +111,14 @@ estado_actual2 <- left_join(estado_actual, codigos_status,
 ### Hay pacientes con causa de muerte sin estado muerto ¿?
 patient_basic <- left_join(all_person, all_diagnosis, by = "register_number" ) %>%
   left_join(estado_actual2, by = "register_number" ) %>%
+  left_join(evolution2, by = "register_number") %>%
   mutate(OS_YEARS = time_length(difftime(assessment_date , diagnosis_date), "years"),
          OS_STATUS = ifelse(estado == "ESTADO_PACIENTE_MUERTO", 1, 
-                            ifelse(is.na(estado), NA, 0)))
+                            ifelse(is.na(estado), NA, 0)),
+         AMLt_STATUS = ifelse(is.na(who2017_evo) | who2017_evo != "WHO2017_LMA", 0, 1),
+         evol_date2 = ifelse(is.na(evol_date), assessment_date, evol_date),
+         evol_date2 = as.Date(evol_date2),
+         AMLt_YEARS = time_length(difftime(evol_date2 , diagnosis_date), "years"))
 
 
 ## Pronostico ####
@@ -302,12 +326,79 @@ mutations2 %>%
   summarize(N_mut = sum(mutation == "MUTATION_STATUS_MUTADO")) %>%
   arrange(N_mut)
 
+
+# Treatment ####
+trasplante <- dbGetQuery(con, sprintf(
+  "select register_number, transplanted from patient 
+  join tph_data on patient.id = tph_data.id where register_number
+  in (%s) order by register_number", all_register)) 
+
+transfusion <- dbGetQuery(con, sprintf(
+  "select register_number from patient p join 
+  transfusion t on p.id = t.patient_id where register_number in (%s)
+  order by register_number", all_register))  %>%
+  distinct() %>%
+  mutate(transfusion = TRUE)
+
+tratamiento<-dbGetQuery(con, sprintf(
+  "select register_number, drug_name_id, support_drug_name_id,
+   start_date, end_date, treatment_line, description
+   from patient p join treatment_data td on p.id = td.patient_id
+   left join treatment_drug_data tdd on td.id = tdd.treatment_data_id where
+   register_number in (%s) order by register_number", 
+  all_register)) 
+
+
+tratamiento$register_number<-as.numeric(tratamiento$register_number)
+
+tratamiento2 <- dbGetQuery(con, 
+                         sprintf("select register_number, drug_name_id, support_drug_name_id,
+          td.start_date, end_date, treatment_line, description
+          from patient p join treatment_data td on p.id = td.patient_id
+          join treatment_cycle_data tcd on td.id = tcd.treatment_data_id left join
+          treatment_drug_data tdd2 on tcd.id = tdd2.cycle_data_id where
+          register_number in (%s) order by register_number", 
+                                 all_register)) 
+
+tratamiento2$register_number<-as.numeric(tratamiento2$register_number)
+
+t3 <- rbind(tratamiento, tratamiento2) %>% group_by(register_number) %>% 
+  arrange(start_date, .by_group = T)
+
+t4 <- unite(t3, drug_id, c(drug_name_id, support_drug_name_id))
+t4$drug_id <- gsub("NA_","", t4$drug_id)
+t4$drug_id <- gsub("_NA", "", t4$drug_id)
+t4$drug_id[t4$drug_id == "NA"] <- NA
+t4$drug_id <- parse_integer(t4$drug_id)
+
+lista_tratamientos <- dbGetQuery(con, sprintf(
+  "select id, code as tratamiento from list_item where id in (%s) order by id",
+  paste0(unique(t4$drug_id[!is.na(t4$drug_id)]), collapse = ",")))
+
+lista_tratamientos$id <- as.numeric(lista_tratamientos$id)
+
+treatment_merge <- left_join(t4, lista_tratamientos, by = join_by(drug_id == id)) %>%
+  mutate(hma = ifelse(tratamiento %in% c("NOM_FARMACO_AZACITIDINA", "NOMBRE_FARMACO_DECITABINA", "NOM_FARMACO_AGENTES_HIPOMETILANTES"), 1, 0),
+         azacitidina = ifelse(tratamiento == "NOM_FARMACO_AZACITIDINA", 1, 0),
+         lenalidomida = ifelse(tratamiento == "NOM_FARMACO_LENALIDOMIDA", 1, 0)) %>%
+  select(register_number, hma, azacitidina, lenalidomida) %>%
+  pivot_longer(cols = -register_number) %>%
+  mutate(value = ifelse(is.na(value), 0, value)) %>%
+  group_by(register_number, name) %>%
+  summarize(value = max(value)) %>%
+  pivot_wider(names_from = name, values_from = value) %>%
+  mutate(register_number = as.integer(register_number))
+           
+
 ## Final merge
 gesmd_data <- left_join(patient_basic, hemogram, by = "register_number") %>%
   left_join(morphological, by = "register_number") %>%
   left_join(all_pronostico2, by = "register_number") %>%
   left_join(cariotype_tab, by = "register_number") %>%
   left_join(mutations_sel, by = "register_number") %>%
+  left_join(treatment_merge, by = "register_number") %>%
+  left_join(trasplante, by = "register_number") %>%
+  left_join(transfusion, by = "register_number") %>%
   mutate(consensus = ifelse(TP53multi == 1 & BM_BLAST <= 20, "Mutated TP53",
                    ifelse(del5q == 1 & del7q == 0 & BM_BLAST <= 5, "del5q",
                           ifelse(SF3B1 > 0 & del7q == 0 & complex == 0 & BM_BLAST <= 5, "mutated SF3B1",
@@ -337,3 +428,34 @@ raul_data <- read_csv("pacientesngsvcf.csv") %>%
 
 table(raul_data$ngs_done, raul_data$selected)
 table(raul_data$ngs_done, !is.na(raul_data$consensus))
+
+## Código Irene ####
+all_person_irene <- dbGetQuery(con, sprintf(
+  "select register_number, nip, h.name as hospital, li.code as gender, birthdate 
+  from patient p 
+  join hospital h on p.hospital_id = h.id 
+  join list_item li on p.gender_id = li.id 
+  where register_number = any(array[%s])", all_register)) %>%
+  mutate(SEX = ifelse(gender == "SEXO_HOMBRE", "M", "F")) %>%
+  as_tibble()
+
+
+
+cun <- subset(all_person_irene, hospital == "Clinica Universidad de Navarra") %>%
+  left_join(gesmd_data, by = "register_number")
+
+library(readxl)
+library(writexl)
+
+data1 <- read_xlsx("./data/Pacientes_Irene.xlsx", sheet = "Hoja1") %>%
+  mutate(nip = as.character(`Nº de historia`))
+
+data1_merge <- left_join(data1, cun, by = "nip")
+
+data2 <- read_xlsx("./data/Pacientes_Irene.xlsx", sheet = "Solo tto CUN o no tto") %>%
+  mutate(nip = as.character(`Nº de historia`))
+
+data2_merge <- left_join(data2, cun, by = "nip")
+
+write_xlsx(list(Hoja1 = data1_merge, "Solo tto CUN o no tto" = data2_merge), 
+           "./data/Pacientes_Irene_merge.xlsx")
