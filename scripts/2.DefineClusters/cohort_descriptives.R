@@ -169,6 +169,34 @@ summarize_fun <- function(df){
            )
 }
 
+summarize_fun_full <- function(df){
+     summarize(df,
+            N = n(),
+            Females = getProp(SEX == "F", SEX),
+            Males = getProp(SEX == "M", SEX),
+            Age = getIQR(AGE),
+            `BM Blasts` = getIQR(BM_BLAST),
+            `WBC count` = getIQR(WBC),
+            `Neutrophil Count` = getIQR(ANC),
+            `Monocyte Count` = getIQR(MONOCYTES),
+            HB = getIQR(HB),
+            PLT = getIQR(PLT),
+            `MDS-TP53` = getProp(consensus == "MDS-TP53", consensus),
+            `MDS-del5q` = getProp(consensus == "MDS-del5q", consensus),
+            `MDS-SF3B1` = getProp(consensus == "MDS-SF3B1", consensus),
+            `MDS-LB` = getProp(consensus == "MDS-LB", consensus),
+            `MDS-IB1` = getProp(consensus == "MDS-IB1", consensus),
+            `MDS-IB2` = getProp(consensus == "MDS-IB2", consensus),
+            `IPSSM Very-Low` = getProp(IPSSM == "Very-Low", IPSSM),
+            `IPSSM Low` = getProp(IPSSM == "Low", IPSSM),
+            `IPSSM Moderate-Low` = getProp(IPSSM == "Moderate-Low", IPSSM),
+            `IPSSM Moderate-High` = getProp(IPSSM == "Moderate-High", IPSSM),
+            `IPSSM High` = getProp(IPSSM == "High", IPSSM),
+            `IPSSM Very-High` = getProp(IPSSM == "Very-High", IPSSM),
+            IPSSM_NA = getPropNA(IPSSM)
+           )
+}
+
 
 summarize_fun_input <- function(df, clin_vars, mutations){
         summarize(df, 
@@ -251,7 +279,7 @@ write.table(descriptives_cluster2,
 
 
 
-## Compute descriptives for GESMD and IWS full cohorts
+## Compute descriptives for GESMD and IWS morphologic cohorts
 mds_morph_dataset <- bind_rows(
     gesmd_dataset %>% mutate(dataset = "GESMD"),
     IWS_mds %>% mutate(dataset = "IWS"),
@@ -300,6 +328,122 @@ write.table(mds_morph_tab,
             sep = "\t", 
             quote = FALSE, 
             col.names = NA)
+
+
+
+ipssm_full_process <- IPSSMprocess(gesmd_full)
+ipssm_full_res <- IPSSMmain(ipssm_full_process)
+ipssm_full_annot <- IPSSMannotate(ipssm_full_res)
+
+gesmd_full_ipssm <- ipssm_full_annot %>%
+    mutate(IPSSM = IPSSMcat_mean,
+           IPSSM = gsub(" ", "-", IPSSM, fixed = TRUE),
+           IPSSM_SCORE = IPSSMscore_mean) %>%
+    select(ID, IPSSM, IPSSM_SCORE)
+
+gesmd_full <- gesmd_full %>%
+    rows_patch(y = select(gesmd_full_ipssm, -IPSSM_SCORE), by = "ID") %>%
+    left_join(select(gesmd_full_ipssm, -IPSSM), by = "ID")
+
+mds_full_dataset <- bind_rows(
+    gesmd_full %>%
+        mutate(dataset = "GESMD",
+        sub_group = classifySamples(.), 
+        consensus = recode(consensus,
+        `Mutated TP53` = "MDS-TP53")) %>%
+        filter(!is.na(consensus) ),
+    IWS_full %>%
+        mutate(complex = ifelse(complex == "complex", 1, 0),
+        dataset = "IWS",
+        sub_group = classifySamples(.)),
+    hershberger_full %>% mutate(dataset = "MLL") %>%
+        filter(!WHO %in% c("AML-KMT2A", "AML-MECOM", "AML-NPM1", "N/A")) %>%
+        mutate(consensus = recode(WHO,
+        `MDS-5q` = "MDS-del5q"),
+        consensus = ifelse(BM_BLAST == 5, "MDS-LB", consensus),
+        IPSSM = recode(IPSSM,
+        `Very Low` = "Very-Low",
+        `Moderate Low` = "Moderate-Low",
+        `Moderate High` = "Moderate-High",
+        `Very High` = "Very-High"))
+) %>%
+    mutate(dataset = factor(dataset, levels = c("IWS", "GESMD", "MLL")))
+
+
+descriptives_mds_full <- mds_full_dataset %>%
+    group_by(dataset) %>%
+    summarize_fun_full() %>%
+    t() %>%
+    as.data.frame() 
+
+mds_test_full <- c(
+    sapply(c("SEX", "consensus", "IPSSM"), chisq_test, df = mds_full_dataset),
+    sapply(c("AGE", "HB", "PLT"), lm_test_f, df = mds_full_dataset),
+    sapply(c("BM_BLAST", "WBC", "ANC", "MONOCYTES"),
+           poisson_test_f, df = mds_full_dataset)
+)
+mds_test_full
+
+test_name_by_row <- c(
+    Females = "SEX", Males = "SEX", Age = "AGE.value",
+    `BM Blasts` = "BM_BLAST", `WBC count` = "WBC",
+    `Neutrophil Count` = "ANC", `Monocyte Count` = "MONOCYTES",
+    HB = "HB.value", PLT = "PLT.value",
+    `MDS-TP53` = "consensus", `MDS-del5q` = "consensus", `MDS-SF3B1` = "consensus",
+    `MDS-LB` = "consensus", `MDS-IB1` = "consensus", `MDS-IB2` = "consensus",
+    `IPSSM Very-Low` = "IPSSM", `IPSSM Low` = "IPSSM",
+    `IPSSM Moderate-Low` = "IPSSM", `IPSSM Moderate-High` = "IPSSM",
+    `IPSSM High` = "IPSSM", `IPSSM Very-High` = "IPSSM", IPSSM_NA = "IPSSM"
+)
+
+test_values <- unname(mds_test_full[
+    test_name_by_row[rownames(descriptives_mds_full)]
+])
+descriptives_mds_full$Test <- ifelse(
+    !is.na(test_values) & test_values != 0 & abs(test_values) < 0.005,
+    sprintf("%.2e", test_values),
+    sprintf("%.2f", test_values)
+)
+
+
+write.table(descriptives_mds_full, 
+            file = "results/GESMD_IWS_clustering/mds_full_samples_descriptives.txt", 
+            sep = "\t", 
+            quote = FALSE, 
+            col.names = NA)
+
+mds_full_tab <- mds_full_dataset %>%
+    group_by(sub_group, dataset) %>%
+    summarize(N = n()) %>%
+    group_by(dataset) %>%
+    mutate(val = sprintf("%i (%.1f%%)", N, N/sum(N)*100)) %>%
+    select(-N) %>%
+    pivot_wider(names_from = dataset, values_from = val)
+
+write.table(mds_morph_full_tab,
+            file = "results/GESMD_IWS_clustering/mds_morph_full_subgroup_distribution.txt",
+            sep = "\t",
+            quote = FALSE,
+            col.names = NA)
+
+mds_full_dataset %>%
+    filter(consensus %in% c("MDS-LB", "MDS-IB1", "MDS-IB2")) %>%
+    group_by(sub_group, dataset) %>%
+    summarize(N = n()) %>%
+    group_by(dataset) %>%
+    mutate(val = sprintf("%i (%.1f%%)", N, N/sum(N)*100)) %>%
+    select(-N) %>%
+    pivot_wider(names_from = dataset, values_from = val) 
+
+## Samples in MDS-LB/IB1/IB2 (consensus) reclassified into a molecular subgroup
+mds_full_dataset %>%
+    filter(dataset %in% c("IWS", "GESMD"),
+           consensus %in% c("MDS-LB", "MDS-IB1", "MDS-IB2")) %>%
+    group_by(consensus) %>%
+    summarize(N = n(),
+              N_reclassified = sum(!sub_group %in% c("MDS-LB", "MDS-IB1", "MDS-IB2")),
+              Percentage = N_reclassified / N * 100,
+              .groups = "drop")
 
 
 save(gesmd_dataset, IWS_mds, file = "results/GESMD_IWS_clustering/gesmd_IWS_mds.Rdata")

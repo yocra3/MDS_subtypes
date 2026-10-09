@@ -402,8 +402,7 @@ dev.off()
 
 
 ## Selected components
-png("figures/GESMD_IWS_clustering/subgroup_definition/joint_components_inertia.png", width = 400, height = 300)
-tibble(Dimension = seq_len(40), IWS = IWS_mfa$global.pca$eig[1:40, 2], GESMD = GESMD_mfa$global.pca$eig[1:40, 2]) %>%
+inertia_plot <- tibble(Dimension = seq_len(40), IWS = IWS_mfa$global.pca$eig[1:40, 2], GESMD = GESMD_mfa$global.pca$eig[1:40, 2]) %>%
     pivot_longer(cols = c("IWS", "GESMD"), names_to = "Dataset", values_to = "Inertia") %>%
     mutate(Selection = ifelse((Dimension <= 9 & Dataset == "IWS") | (Dimension <= 9 & Dataset == "GESMD"), "chosen", "rest"),
     Dataset = factor(Dataset, levels = c("IWS","GESMD")))  %>%
@@ -412,16 +411,16 @@ tibble(Dimension = seq_len(40), IWS = IWS_mfa$global.pca$eig[1:40, 2], GESMD = G
     scale_fill_manual(values = c("black", "white")) +
     facet_grid(. ~ Dataset) +
     xlab("Dimension") +
-    ylab("Percentage of inertia (%)") +
+    ylab("Inertia (%)") +
     theme_bw() +
     theme(legend.position = "none")
+
+
+png("figures/GESMD_IWS_clustering/subgroup_definition/joint_components_inertia.png", width = 400, height = 300)
+inertia_plot
 dev.off()
 
-
-
-## Silhouette score
-png("figures/GESMD_IWS_clustering/subgroup_definition/joint_silhouette_score.png", width = 400, height = 300)
-tibble(N_clusters = 2:20, IWS = sil_scores1, GESMD = sil_scores_gesmd) %>%
+silhouette_score <- tibble(N_clusters = 2:20, IWS = sil_scores1, GESMD = sil_scores_gesmd) %>%
     pivot_longer(cols = c("IWS", "GESMD"), names_to = "Dataset", values_to = "Score") %>%
     mutate(color = ifelse((N_clusters == 10 & Dataset == "IWS") | (N_clusters == 12 & Dataset == "GESMD"), "selected", "rest")) %>%
   ggplot(aes(x = N_clusters, y = Score, color = Dataset)) +
@@ -432,6 +431,14 @@ tibble(N_clusters = 2:20, IWS = sil_scores1, GESMD = sil_scores_gesmd) %>%
   scale_x_continuous(breaks = seq(2, 20, 4)) +
   theme_bw() +
   guides(size = "none") 
+
+## Silhouette score
+png("figures/GESMD_IWS_clustering/subgroup_definition/joint_silhouette_score.png", width = 400, height = 300)
+silhouette_score
+dev.off()
+
+png("figures/GESMD_IWS_clustering/subgroup_definition/joint_clustering_plot.png", width = 1800, height = 1300, res = 300)
+plot_grid(inertia_plot, silhouette_score, nrow = 2, labels = "AUTO")
 dev.off()
 
 ## Match manual clusters with original clusters

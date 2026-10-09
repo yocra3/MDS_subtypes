@@ -21,21 +21,52 @@ library(tidyverse)
 library(ggh4x)
 library(cowplot)
 library(ComplexHeatmap)
+library(ggalluvial)
 
 load("results/GESMD_IWS_clustering/gesmd_IWS_mds.Rdata")
 load("results/hershberger/hershberger_mds.Rdata")
 
 hersh_mds$sub_group <- factor(hersh_mds$sub_group, levels = levels(IWS_mds$sub_group))
+hersh_mds$consensus <- ifelse(hersh_mds$BM_BLAST == 5, "MDS-LB", hersh_mds$WHO)
 
 
 # colors <- c("black", "grey40", "#E69F00", "#56B4E9", "#009E73", 
 #     "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#999999", "#0000FF")
-# colors_all <- c("#E69F00", "#56B4E9", "#009E73", "#CC79A7", "#F0E442", "#0072B2", 
-#     "#D55E00", "#999999", "grey40",  "black")
+colors_all <- c("#D55E00", "#F0E442", "#0072B2", "#009E73", "#E69F00", "#CC79A7", "#56B4E9",   
+      "#999999", "grey40",  "black")
 colors <-  c( "#56B4E9", "#009E73", "#E69F00", "#CC79A7", 
      "#999999", "grey40",  "black")
 scale_col <- scale_color_manual(values = colors, name = "Sub-group")
 scale_fill <- scale_fill_manual(values = colors, name = "Sub-group")
+
+
+alluvial_plot <- function(df, title){
+    df %>% 
+    mutate(consensus = factor(consensus, 
+        levels = c("MDS-LB", "MDS-IB1", "MDS-IB2")),
+        sub_group = factor(sub("-HR$", "-IB", as.character(sub_group)),
+        levels = c("Complex", "del5q-IB", "SF3B1-IB",  "-7", "EZH2", "STAG2",  "TET2-bi", "MDS-LB", "MDS-IB1", "MDS-IB2")
+    )) %>%
+    ggplot(aes(axis1 = consensus, axis2 = sub_group, color = sub_group)) +
+    ggtitle(title) +
+    geom_alluvium(discern = TRUE) +
+    geom_stratum(discern = TRUE) +
+    geom_text(stat = "stratum",     aes(label = sub("\\.[0-9]+$", "", after_stat(stratum))), discern = TRUE) +
+   scale_color_manual(values = colors_all, name = "Sub-group") +
+    theme_void() +
+    theme(legend.position = "none",
+          plot.title = element_text(hjust = 0.5))
+}
+
+alluvial_panel <- plot_grid(
+    alluvial_plot(IWS_mds, "IWS"),
+    alluvial_plot(gesmd_dataset, "GESMD"),
+    alluvial_plot(hersh_mds, "MLL"),
+    nrow = 1, labels = c("B", "C", "D"))
+
+png("figures/GESMD_IWS_clustering/subgroup_exploration/alluvial_panel.png", width = 3000, height = 2000, res = 300)
+alluvial_panel
+dev.off()
 
 ## Proportion of each subgroup in each dataset
 mean(IWS_mds$sub_group %in% c("EZH2", "TET2-bi", "-7", "STAG2", "del5q-HR", "SF3B1-HR", "Complex"))
@@ -78,106 +109,25 @@ clin_joint <- clin_joint3 %>%
     dataset = droplevels(dataset))
 
 ## Compute cytopenia prop
-#nb <- c("BM_BLAST", "PB_BLAST")
-nb <- c("BM_BLAST") ## Exclude PB BLAST
-
-res_nb <- lapply(nb, function(var){
-    cell_test <- lapply(seq_len(length(clusters)), function(i){
-      cl <- clusters[i]
-     tmp <- mutate(clin_joint, cluster = relevel(sub_group, cl))
-     poiss_lm <- summary(glm.nb(formula (paste(var, " ~ cluster + AGE + SEX + dataset")), tmp))
-     coefs <- poiss_lm$coefficients[-1, ]
-
-     tmp_mll <- mutate(hersh_mds, cluster = relevel(sub_group, cl))
-     poiss_lm_mll <- summary(glm.nb(formula (paste(var, " ~ cluster + AGE + SEX ")), tmp_mll))
-    coefs_mll <- poiss_lm_mll$coefficients[-1, ]
-
-     coef_df <- as_tibble(coefs[, c(1, 4)]) %>%
-       mutate(Ref_cluster = cl, 
-              Comp_clust = gsub("cluster", "", rownames(coefs)),
-              Stat = exp(Estimate)) %>%
-              filter(Comp_clust %in% sub_groups) %>%
-              left_join(as_tibble(coefs_mll[, c(1, 4)]) %>%
-                          mutate(Ref_cluster = cl, 
-                                 Comp_clust = gsub("cluster", "", rownames(coefs_mll)),
-                                 Stat = exp(Estimate)) %>%
-                          filter(Comp_clust %in% sub_groups),
-            by = c("Ref_cluster", "Comp_clust"), suffix = c("", "_MLL")) 
-
-     colnames(coef_df)[c(2, 7)] <- c("P_value", "P_value_MLL")
-     
-     select(coef_df, Ref_cluster, Comp_clust, Stat, P_value, Stat_MLL, P_value_MLL)
-    }) %>%
-    Reduce(., f = rbind) 
-  out <- mutate(cell_test, 
-                Clin_var = var) %>%
-    filter(Stat > 1) %>%
-    arrange(P_value)
-  out
-})
-lapply(res_nb, function(x) filter(x, Ref_cluster %in% sub_groups & Comp_clust %in% sub_groups))
-
-
-poisson <- c("WBC", "ANC", "MONOCYTES")
-res_poisson <- lapply(poisson, function(var){
-    cell_test <- lapply(seq_len(length(clusters) ), function(i){
-      cl <- clusters[i]
-     tmp <- mutate(clin_joint, cluster = relevel(sub_group, cl))
-     poiss_lm <- summary(glm(formula (paste(var, " ~ cluster + AGE + SEX + dataset")), tmp, 
-                      family = "poisson"))
-     coefs <- poiss_lm$coefficients[-1, ]
-
-    if (var %in% colnames(hersh_mds)) {
-
-     tmp_mll <- mutate(hersh_mds, cluster = relevel(sub_group, cl))
-     poiss_lm_mll <- summary(glm(formula (paste(var, " ~ cluster + AGE + SEX ")), tmp_mll,
-             family = "poisson"))
-     coefs_mll <- poiss_lm_mll$coefficients[-1, ]
-     mll_tib <- as_tibble(coefs_mll[, c(1, 4)])
-    } else {
-       coefs_mll <-  mll_tib <- data.frame(Estimate = NA, `Pr(>|z|)` = NA, cluster = sub_groups[sub_groups != cl])
-       rownames(coefs_mll) <- paste0("cluster", sub_groups[sub_groups != cl])
-        mll_tib <- select(mll_tib, -cluster)
-    }
-     coef_df <- as_tibble(coefs[, c(1, 4)]) %>%
-       mutate(Ref_cluster = cl, 
-              Comp_clust = gsub("cluster", "", rownames(coefs)),
-              Stat = exp(Estimate)) %>%
-        filter(Comp_clust %in% sub_groups) %>%
-        left_join(mll_tib %>%
-                 mutate(Ref_cluster = cl,
-                     Comp_clust = gsub("cluster", "", rownames(coefs_mll)),
-                     Stat = exp(Estimate)) %>%
-                 filter(Comp_clust %in% sub_groups),
-         by = c("Ref_cluster", "Comp_clust"), suffix = c("", "_MLL"))
-
-     colnames(coef_df)[c(2, 7)] <- c("P_value", "P_value_MLL")
-     
-     select(coef_df, Ref_cluster, Comp_clust, Stat, P_value, Stat_MLL, P_value_MLL)
-    }) %>%
-    Reduce(., f = rbind) 
-  out <- mutate(cell_test, 
-                Clin_var = var) %>%
-    filter(Stat > 1) %>%
-    arrange(P_value)
-  out
-})
-lapply(res_poisson, function(x) filter(x, Ref_cluster %in% sub_groups & Comp_clust %in% sub_groups))
-
-normal <- c("HB", "PLT")
-res_norm <- lapply(normal, function(var){
+cells <- c( "WBC", "ANC", "MONOCYTES", "BM_BLAST", "HB", "PLT")
+res_cells <- lapply(cells, function(var){
     cell_test <- lapply(seq_len(length(clusters)), function(i){
       cl <- clusters[i]
      tmp <- mutate(clin_joint, cluster = relevel(sub_group, cl))
      lm <- summary(lm(formula (paste(var, " ~ cluster + AGE + SEX + dataset")), tmp))
      coefs <- lm$coefficients[-1, ]
 
+    if (var %in% colnames(hersh_mds)) {
 
      tmp_mll <- mutate(hersh_mds, cluster = relevel(sub_group, cl))
      lm_mll <- summary(lm(formula (paste(var, " ~ cluster + AGE + SEX ")), tmp_mll))
      coefs_mll <- lm_mll$coefficients[-1, ]
      mll_tib <- as_tibble(coefs_mll[, c(1, 4)])
-
+    } else {
+       coefs_mll <-  mll_tib <- data.frame(Estimate = NA, `Pr(>|z|)` = NA, cluster = sub_groups[sub_groups != cl])
+       rownames(coefs_mll) <- paste0("cluster", sub_groups[sub_groups != cl])
+        mll_tib <- select(mll_tib, -cluster)
+    }
 
      coef_df <- as_tibble(coefs[, c(1, 4)]) %>%
        mutate(Ref_cluster = cl, 
@@ -201,10 +151,7 @@ res_norm <- lapply(normal, function(var){
     arrange(P_value)
   out
 })
-
-clin_test <- rbind(Reduce(res_nb, f = rbind),
-                   Reduce(res_poisson, f = rbind),
-                   Reduce(res_norm, f = rbind)) 
+clin_test <- Reduce(res_cells, f = rbind)
     
 write.table(clin_test, 
             file = "results/GESMD_IWS_clustering/subgroup_clinical_tests.txt", 
@@ -215,8 +162,8 @@ subset(clin_test, Ref_cluster %in% sub_groups & Comp_clust %in% sub_groups & P_v
 
 
 colores_blasts <- c("#FFECB3", "#FFB300", "#D32F2F")
-colores_wbc <- c("#E1BEE7", "#BA68C8", "#8E24AA", "#4A148C")
-colores_monocitos <- c("#CFD8DC", "#4FC3F7", "#FB8C00")
+colores_wbc <- c("#E1BEE7", "#BA68C8", "#4A148C", "black")
+colores_monocitos <- c("#E1F5FE", "#81D4FA", "#29B6F6", "#01579B")
 colores_hb <- c("#F8BBD0", "#F06292", "#E91E63", "#880E4F")
 colores_plt <- c("#C8E6C9", "#81C784", "#43A047", "#1B5E20")
 
@@ -269,12 +216,12 @@ blast_plot <- clin_joint3 %>%
 ## WBC
 wbc_plot <- clin_joint3 %>%
     mutate(Cell_class = case_when(
-        WBC < 1.5 ~ "<1.5",
-        WBC < 3 ~ "1.5-3",
-        WBC < 4 ~ "3-4",
+        WBC < 2 ~ "<2",
+        WBC < 4 ~ "2-4",
+        WBC < 11 ~ "4-11",
         TRUE ~ ">=4"
     ),
-    Cell_class = factor(Cell_class, levels = c("<1.5", "1.5-3", "3-4", ">=4"))) %>%
+    Cell_class = factor(Cell_class, levels = c("<2", "2-4", "4-11", ">=4"))) %>%
     makeBarPlot() +
     scale_fill_manual(name = "WBC", values = colores_wbc)
 
@@ -282,11 +229,12 @@ wbc_plot <- clin_joint3 %>%
 mono_plot <- clin_joint3 %>%
     filter(dataset != "MLL") %>%
     mutate(Cell_class = case_when(
-        MONOCYTES < 0.5 ~ "<0.5",
-        MONOCYTES < 1 ~ "0.5-1",
-        TRUE ~ ">=1"
+        MONOCYTES < 0.2 ~ "<0.2",
+        MONOCYTES < 0.5 ~ "0.2-0.5",
+        MONOCYTES < 0.8 ~ "0.5-0.8",
+        TRUE ~ ">=0.8"
     ),
-    Cell_class = factor(Cell_class, levels = c("<0.5", "0.5-1", ">=1"))) %>%
+    Cell_class = factor(Cell_class, levels = c("<0.2", "0.2-0.5", "0.5-0.8", ">=0.8"))) %>%
     makeBarPlot() +
     scale_fill_manual(name = "MONOCYTES", values = colores_monocitos)
 
@@ -294,12 +242,12 @@ mono_plot <- clin_joint3 %>%
 anc_plot <- clin_joint3 %>%
 filter(dataset != "MLL") %>%    
     mutate(Cell_class = case_when(
-        ANC < 0.4 ~ "<0.4",
-        ANC < 1 ~ "0.4-1",
+        ANC < 0.5 ~ "<0.5",
+        ANC < 1 ~ "0.5-1",
         ANC < 1.5 ~ "1-1.5",
         TRUE ~ ">=1.5"
     ),
-    Cell_class = factor(Cell_class, levels = c("<0.4", "0.4-1", "1-1.5", ">=1.5"))) %>%
+    Cell_class = factor(Cell_class, levels = c("<0.5", "0.5-1", "1-1.5", ">=1.5"))) %>%
     makeBarPlot() +
     scale_fill_manual(name = "ANC", values = colores_wbc)
 
@@ -346,39 +294,11 @@ png("figures/GESMD_IWS_clustering/subgroup_exploration/clin_vars_subgroups_barpl
 clin_panel_sup
 dev.off()
 
-
-
-# clin_sum_plot <- clin_joint %>% 
-#     select(all_of(clin_vars), sub_group, dataset) %>%
-#     pivot_longer(cols = all_of(clin_vars), names_to = "Clin_var", values_to = "Value") %>%
-#     filter(Clin_var != "PB_BLAST") %>%
-#     group_by(Clin_var) %>%
-#     mutate(sd_total = sd(Value, na.rm = TRUE)) %>%
-#     ungroup() %>%
-#     group_by(Clin_var, sub_group) %>%
-#     summarize(m = mean(Value, na.rm = TRUE),
-#         sd_total = first(sd_total)) %>% 
-#     ungroup() %>%
-#     group_by(Clin_var) %>%
-#     mutate(d = (m - m[ sub_group == "Low blasts"])/sd_total,
-#     Clin_var = factor(Clin_var, levels = c("BM_BLAST", "WBC", "ANC", "MONOCYTES", "HB", "PLT"))) %>%
-#     filter(sub_group != "Low blasts") %>%
-#     ggplot(aes(x = sub_group, y = Clin_var, fill = d )) +
-#     geom_tile() +
-#     scale_fill_gradient2(
-#     low = "#0033ff",  
-#     high = "#ff0000",
-#     midpoint = 0
-#     ) +
-#   ylab("Clinical") +
-#   xlab("Sub-groups") +
-#   scale_x_discrete(position = "top") +
-#   scale_y_discrete(limits = rev) +
-#   theme_bw() +
-#   theme(legend.position = "none")
-# png("figures/GESMD_IWS_clustering/subgroup_exploration/clin_vars_subgroups_summary.png", width = 1800, height = 900, res = 300)
-# clin_sum_plot
-# dev.off()
+## Correlation of BM_BLAST with other variables
+cor_blast <- clin_joint3 %>%
+  group_by(sub_group, dataset) %>%
+  summarise(across(c(WBC, HB, PLT), ~ cor(BM_BLAST, .x, use = "pairwise.complete.obs")), .groups = "drop")
+cor_blast
 
 ## AGE
 
@@ -642,4 +562,3 @@ joint_ipssm2_m <- filter(joint_ipssm2, sub_group %in% c("MDS-LB", "MDS-IB1", "MD
 
 fisher.test(table(!joint_ipssm2_f$CYTO_IPSSR %in% c("Very Good", "Good"), 
         joint_ipssm2_f$sub_group == "MDS-LB"))
-

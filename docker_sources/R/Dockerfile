@@ -38,4 +38,6 @@ RUN R -e 'BiocManager::install(c("EnsDb.Hsapiens.v86"))'
 RUN R -e 'BiocManager::install(c("ComplexHeatmap", "patchwork"))'
 
 # Install newer plotting packages2 (v.1.10)
-RUN R -e 'BiocManager::install(c("ggh4x", "ggplot2"))'
+RUN R -e 'BiocManager::install(c("ggh4x", "ggplot2", "survminer"))'
+
+RUN R -e 'install.packages("ggalluvial")'

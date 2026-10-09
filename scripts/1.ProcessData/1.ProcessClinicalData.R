@@ -60,13 +60,6 @@ clinical <- mutate(clin_comb,
     IPSSRA = factor(IPSSRA, levels = c("Very-Low", "Low", "Int", "High", "Very-High")),
     IPSSM = factor(IPSSM, levels = c("Very-Low", "Low", "Moderate-Low", "Moderate-High", "High", "Very-High")),
     OS_YEARS = ifelse(OS_YEARS == 0, 0.0001, OS_YEARS), ## Remove 0s in survival
-    BM_BLAST = round(BM_BLAST, 0),
-    PB_BLAST = round(PB_BLAST, 0),
-    WBC = round(WBC, 0),
-    ANC = round(ANC, 0), 
-    MONOCYTES = round(MONOCYTES, 0),
-    HB = round(HB, 0), 
-    PLT = round(PLT, 0),
     RINGED_SIDEROBLASTS = ifelse(is.na(RINGED_SIDEROBLASTS), 0, RINGED_SIDEROBLASTS), 
     ## Compute consensus MDS sub-types
     consensus = ifelse(TP53multi == 1 & BM_BLAST <= 20, "MDS-TP53",

@@ -41,18 +41,17 @@ clinical_blasts <- clinical %>%
     filter(consensus %in% c("Low blasts", "MDS-IB1", "MDS-IB2")) %>%
     filter(!WHO_2016 %in% c("aCML", "CMML", "MDS/MPN-RS-T", "MDS/MPN-U")) %>%
     filter(SF3B1 == 0 & del5q == 0) %>% ## Remove SF3B1 and del5q
-    mutate(clust = ifelse(delY == 1, "Y-",
-        ifelse(del7 == 1, "7-",
-            ifelse(del20q == 1, "del20q",
-                ifelse(plus8 == 1, "8+", 
-                    ifelse(DNMT3A == 1, "DNMT3A",
-                        ifelse(STAG2 == 1, "STAG2",
-                            ifelse(TET2bi == 1, "TET2 bi-allelic",
+  mutate(clust = ifelse(delY == 1, "Y-",
+                    ifelse(del7 == 1, "7-",
+                      ifelse(complex == "complex", "complex",
+                        ifelse(del20q == 1, "del20q",
+                          ifelse(plus8 == 1, "8+", 
+                            ifelse(del7q == 1, "del7q",
+                              ifelse(TET2bi == 1, "TET2 bi-allelic",
                                 ifelse(TET2other == 1, "TET2 monoallelic",
-                                    ifelse(WBC > 6, "Midly Leukopenic",                 
-                                           "Highly Leukopenic"))))))))),
-        clust = factor(clust, levels = c("Highly Leukopenic", "Midly Leukopenic", "TET2 monoallelic", "TET2 bi-allelic", "Y-", "8+", "7-", "del20q", "DNMT3A", "STAG2"))
-) %>%
+                                  ifelse(STAG2 == 1, "STAG2",
+                                    ifelse(WBC > 6, "Midly Leukopenic",                 "Highly Leukopenic")))))))))),
+                        clust = factor(clust, levels = c("Highly Leukopenic", "Midly Leukopenic", "TET2 monoallelic", "TET2 bi-allelic", "Y-", "8+", "7-", "del20q", "del7q", "complex", "STAG2"))) %>%
   filter(!is.na(clust))
 
 ```
@@ -134,7 +133,7 @@ table(clinical_blasts$clust)
 PCA de los datos clínicos
 
 ```{r}
-colors <- c("black", "grey", "red", "orange", "yellow", "green", "cyan", "blue", "magenta", "brown")
+colors <- c("black", "grey", "red", "orange", "yellow", "green", "cyan", "blue", "magenta", "brown", "purple")
 group_cols <- colors
 
 scale <-   scale_color_manual(values = colors) 
@@ -346,8 +345,8 @@ Variables with poisson distribution
 
 ```{r}
 clusters <- levels(clinical_blasts$clust)
-poisson <- c("BM_BLAST", "WBC", "ANC", "MONOCYTES")
-names(poisson) <- c("BM_BLAST", "WBC", "ANC", "MONOCYTES")
+poisson <- c("WBC", "ANC", "MONOCYTES")
+names(poisson) <- c("WBC", "ANC", "MONOCYTES")
 res <- lapply(poisson, function(var){
     cell_test <- lapply(seq_len(length(clusters) - 1), function(i){
       cl <- clusters[i]
@@ -377,11 +376,15 @@ res
 Variables with negative binomial distribution
 
 ```{r}
-pb_res <- lapply(seq_len(length(clusters) - 1), function(i){
+nb <- c("BM_BLAST", "PB_BLAST")
+names(nb) <- nb
+res_nb <- lapply(nb, function(var){
+    cell_test <- lapply(seq_len(length(clusters) - 1), function(i){
       cl <- clusters[i]
      tmp <- mutate(clinical_blasts, cluster = relevel(clust, cl))
-     nb_lm <- summary(glm.nb(PB_BLAST ~ cluster, tmp))
-     coefs <- nb_lm$coefficients[-1, ]
+     poiss_lm <- summary(glm(formula (paste(var, " ~ cluster")), tmp, 
+                      family = "poisson"))
+     coefs <- poiss_lm$coefficients[-1, ]
      coef_df <- as_tibble(coefs[, c(1, 4)]) %>%
        mutate(Ref_cluster = cl, 
               Comp_clust = gsub("cluster", "", rownames(coefs)),
@@ -391,9 +394,13 @@ pb_res <- lapply(seq_len(length(clusters) - 1), function(i){
      select(coef_df, Ref_cluster, Comp_clust, HR, P_value)
     }) %>%
     Reduce(., f = rbind) 
-mutate(pb_res, Cell = "PB_BLAST") %>%
-    filter(HR > 1) %>%
+  out <- mutate(cell_test, 
+                Cell = var) %>%
+    filter(HR > 1 & !Comp_clust %in% c("AGE", "SEXM")   ) %>%
     arrange(P_value)
+  out
+})
+res_nb
 ```
 
 Variables modeled with a normal
@@ -446,7 +453,7 @@ pheatmap(mat = kar_tabs_lowblasts, display_numbers = TRUE)
 
 ```{r}
 mutations <- read_tsv("../data/IPSSMol/df_mut.tsv")
-mut_vars <- colnames(mutations)[colnames(mutations) != "ID"]
+mut_vars <- colnames(mutations)[!colnames(mutations) %in% c("ID", "TET2", "TET2other", "TET2bi", "STAG2")]
 
 mut_vars <- mut_vars[mut_vars %in% colnames(clinical_blasts)]
 sel_muts <- mut_vars[colSums(clinical_blasts[, mut_vars]) > 30]
@@ -763,8 +770,8 @@ survfit(formula = Surv(OS_YEARS,OS_STATUS) ~ IPSSM, clinical_blasts) %>%
 ```
 
 ```{r}
-os_cl_res <- lapply(clusts, function(cl){
-  
+os_cl_res <- lapply(clusts[clusts != "del7q"], function(cl){
+    
     df <-subset(clinical_blasts, clust == cl)
     n_group <- df %>% 
       group_by(IPSSM) %>%
@@ -927,8 +934,7 @@ Los chromosomal parece que les funciona mejor el transplante.
 ## Mutaciones
 
 ```{r}
-test_muts <- sel_muts[-grep("TET2", sel_muts)]
-mut_hr_clust <- lapply(test_muts, function(gene){
+mut_hr_clust <- lapply(sel_muts, function(gene){
     lapply(clusts, function(cl){
     mod <- coxph(formula(paste("Surv(OS_YEARS,OS_STATUS) ~", gene, "+ AGE")), 
             clinical_blasts, subset = clust == cl)

@@ -59,5 +59,12 @@ rsconnect/
 *.pdf
 *.pyc
 *.html
-
+*.xlsx
+*.Rdata
+*.txt
+*.csv
+*.ppk
+*.zip
+*.pem
+*.tsv
 
